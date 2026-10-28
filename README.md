@@ -1,7 +1,8 @@
 # DAW2BMS
 
 将 DAW 工程的音乐结构提取为可用于后续 BMS 制作的中间数据。
-当前版本支持 **FLP 结构提取、独立键音工程生成、FL 命令行渲染、WAV 切音和 BMS 测试谱导出**。
+当前版本支持 **FLP 结构提取、独立键音工程生成、FL 命令行渲染、WAV 切音和 BMS 测试谱导出**，
+以及 **Ableton ALS Arrangement 读取和 MIDI-only 导出**（不需要安装 Ableton）。
 遇到缺失资源的通道会保留 MIDI 并在命令行警告，其他可用通道继续处理。
 输入 FLP 始终只读，改动仅发生在新建的采样工程副本中；不使用 computer use / GUI 自动化。
 
@@ -26,7 +27,8 @@
 .\.venv\Scripts\python.exe -m daw2bms gui "D:\YourProjects\song.flp"
 ```
 
-- 支持繁體中文、English、日本語、한국어的单窗口，中性深灰界面，少量蓝色强调。左侧选择或拖入 FLP、选择输出父目录；右侧查看进度、日志和警告。
+- 支持繁體中文、English、日本語、한국어的单窗口，中性深灰界面，少量蓝色强调。左侧选择或拖入 FLP/ALS、选择输出父目录；右侧查看进度、日志和警告。
+- 选择 ALS 后，音频渲染/BMS 参数自动停用，进度第二阶段显示 MIDI 导出；不会检查或启动 FL/Ableton。
 - 高级设置提供 FL 路径、额外素材目录、谱面标题/作者、准备小节、尾音探测和重试上限、超时、键音复用。
 - 调用同一个 `convert` 后端，在 QThread 中运行。不会阻塞窗口，也不允许同时重复启动转换。
 - 进度按真实阶段/重试轮次显示，运行期间为不定进度，不编造完成百分比。
@@ -94,7 +96,8 @@ python -m venv .venv
 .\.venv\Scripts\python.exe -m daw2bms convert "D:\YourProjects\song.flp"
 ```
 
-命令依次读取 FLP、检查资源、生成采样副本、自适应渲染/切音并导出 BMS。
+对于 FLP，命令依次读取工程、检查资源、生成采样副本、自适应渲染/切音并导出 BMS。
+对于 ALS，命令读取 Arrangement 并直接导出 MIDI/JSON，音源渲染暂不实现。
 不依赖特定示例文件，不操作 GUI，也不会修改原工程。
 默认输出到当前目录的 `output/<工程名>-bms/`；目录已存在时自动使用 `-2`、`-3` 等后缀。
 使用 `--out <新目录>` 可以指定输出位置，显式指定的已有目录不会被覆盖。
@@ -135,7 +138,62 @@ FL Studio 查找顺序：`--fl-exe` → 环境变量 `DAW2BMS_FL_EXE` → 默认
 `--title`、`--artist`、`--lead-in-bars`、`--play-channels`、`--encoding`。
 不传标题/作者时使用工程元数据，未设置则使用工程文件名和 `Unknown`。
 
-## 切音流程
+## Ableton ALS：只读 Arrangement 与 MIDI
+
+支持 gzip 压缩的 `.als` 和 UTF-8 明文 XML 形式；不需要安装 Ableton Live，也不需要音频依赖。
+文件选择、拖放、进度及警告均已接入 CLI/GUI 和四种语言：
+
+```powershell
+# 默认创建 output/<工程名>-bms/，重名时自动编号；本阶段不生成有声 BMS。
+python -m daw2bms convert "D:\Projects\song.als"
+
+# 只读提取；ALS 同时写出 Arrangement MIDI。
+python -m daw2bms extract "D:\Projects\song.als" --out .\output\ALS-inspect
+```
+
+输出包括 `project.json`、`clips.csv`、`notes.csv`、`timeline_notes.csv`、`song.mid`、`fallback.mid`、
+`fallback_notes.json`、`midi_mapping.json`、`summary.txt` 和 `conversion.json`。
+`conversion.json` 中 `daw=ableton_live`、`status=midi_only`、`rendering=disabled`，且 `chart=null`。
+现阶段无论是否安装 Live，ALS 都不会调用音源渲染，不会伪造键音或输出空白有声谱。
+`--channels` 可按 ALS MIDI 轨道 ID 筛选导出的 MIDI；ALS 只有一个线性 Arrangement，
+`--arrangement` 仅接受 0 或省略。FL 渲染设置、素材搜索和 BMS 参数对 ALS 不生效。
+
+已实现的读取范围：
+
+- Live 11 的 `ClipTimeable`、Live 12 的 `Sample` 及直接 Arrangement 容器。
+- 轨道 ID、名称、分组和静态启用状态；MIDI 片段起讫、LoopStart/LoopEnd/StartRelative/LoopOn。
+- 音高、力度、释放力度、时值、音符启用状态、概率，以及原始音符属性。
+- 循环和片段裁剪展开；循环的首次源起点使用 `LoopStart + StartRelative`，后续回到 `LoopStart`。
+  关闭循环时使用 `LoopStart`。持续音单独保存原始范围与裁剪后的可见范围。
+- Session 片段单独列入 JSON，不虚构触发顺序；FreezeSequencer 和 Take Lane 不重复加入 Arrangement。
+- 音频片段保留边界、SampleRef 与 WarpMarker 清单，不做音频转 MIDI 或渲染。
+- 初始速度及 Arrangement 拍号事件写入 SMF Type 1 MIDI；轨道分开，保留原始 MIDI 音高编号和 0–127 力度。
+
+时间与保真边界：
+
+- JSON 的拍位置使用精确有理数字串，例如 `1/8`，原始十进位属性也保留。
+- MIDI PPQ 是导出时选择的解析度，不宣称它是 ALS 的原生 PPQ。若无法在 MIDI 上限内精确表示，
+  使用 PPQ 960 并警告，在 `midi_mapping.json` 记录最大误差与最短时值修正，JSON 不受损。
+- 零拍之前的音符在 MIDI 中整体平移以保留；原始 JSON 位置不变，位移量写入 `beat_offset`。
+- 静态停用、零力度、概率为零及零时值音符仍保留在 JSON，但不生成 MIDI 发声音符。
+  对 0–1 之间的概率和力度变化，MIDI 输出潜在音符及基础力度，并警告未模拟随机播放。
+- 速度自动化保留在 JSON，**当前 MIDI 只使用初始速度**，有变化时明确警告；拍号变化已支持。
+- Groove、MPE、clip/track 自动化、Solo 路由和 MIDI 设备处理不模拟。裁剪持续音采用可见区间，
+  在片段/循环边界的重新触发行为可能与 Live 不同，相关情况会警告。
+- 不支持的循环范围不猜测展开，原始音符仍在 `clips[].notes` 中。未知容器的片段另存 XML 并警告。
+
+本阶段已用合成 Live 11/12 夹具测试，并离线验证一个公开的 Live 11.1.5 工程：
+4 个 MIDI 轨道，5506 条导出 MIDI 音符，17 个拍号事件。没有 Live 内的播放对照，
+因此不承诺全部版本与所有播放语义兼容。格式调查及来源见 [docs/ableton-feasibility.md](docs/ableton-feasibility.md)。
+
+可选外部工程回归，不在代码中固定样本文件名或统计值：
+
+```powershell
+$env:DAW2BMS_TEST_ALS = "D:\Projects\song.als"
+.\.venv\Scripts\python.exe -m unittest discover -s tests -p test_als.py -v
+```
+
+## 切音流程（FLP）
 
 ```powershell
 python -m venv .venv
@@ -373,7 +431,8 @@ $env:DAW2BMS_TEST_FLP = "D:\YourProjects\song.flp"
 代码入口：`daw2bms/flp.py`（解析与时间轴）、`daw2bms/keysounds.py`（采样工程）、
 `daw2bms/resources.py`（资源预检）、`daw2bms/midi.py`（MIDI）、
 `daw2bms/audio.py`（渲染/切音）、`daw2bms/adaptive.py`（尾音检测与重试）、
-`daw2bms/bms.py`（测试谱导出）、`daw2bms/pipeline.py`（端到端转换）、`daw2bms/__main__.py`（CLI）。
+`daw2bms/bms.py`（测试谱导出）、`daw2bms/als.py`（ALS 读取）、`daw2bms/als_export.py`（ALS MIDI/JSON）、
+`daw2bms/pipeline.py`（端到端转换）、`daw2bms/__main__.py`（CLI）。
 格式调查记录见 [docs/flp-format.md](docs/flp-format.md)。
 
 下一步：用真实 FL 26 保存的最小工程交叉验证裁剪、静音、循环和变速；

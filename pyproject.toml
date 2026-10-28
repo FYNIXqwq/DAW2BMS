@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "daw2bms"
-version = "0.6.0"
-description = "One-command FLP to BMS conversion with adaptive keysounds and MIDI fallback"
+version = "0.7.0"
+description = "FLP to BMS conversion and read-only Ableton ALS Arrangement MIDI import"
 requires-python = ">=3.10"
 dependencies = []
 

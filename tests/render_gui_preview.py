@@ -37,6 +37,8 @@ def main():
         window.grab().save(str(args.out / "compact-advanced.png"))
         if args.report:
             report = json.loads(args.report.read_text(encoding="utf-8"))
+            if report.get("daw") == "ableton_live":
+                window.active_format = ".als"
             window.resize(1240, 820)
             window.advanced_toggle.setChecked(False)
             window.run_directory = args.report.resolve().parent

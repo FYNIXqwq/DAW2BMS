@@ -131,6 +131,27 @@ class GuiTests(unittest.TestCase):
         self.assertGreater(window.warning_count, 0)
         self.assertFalse(window.chart_button.isEnabled())
 
+    def test_real_als_pipeline_ignores_fl_render_settings(self):
+        from daw2bms.pipeline import convert
+        from test_als import fixture
+        import gzip
+        self.source = self.root / "日本語 한국어.als"
+        self.source.write_bytes(gzip.compress(fixture(version=12)))
+        window = self.create_window(convert)
+        window.fl_edit.setText(str(self.root / "missing.exe"))
+        window.initial_tail.setValue(20)
+        window.max_tail.setValue(1)
+        self.assertFalse(window.fl_row.isEnabled())
+        self.assertFalse(window.initial_tail.isEnabled())
+        with patch("daw2bms.pipeline.find_fl_executable", side_effect=AssertionError("ALS must not discover FL")):
+            window.start_conversion()
+            self.wait_finished()
+        self.assertEqual(window.operation_title.text(), "已保留 MIDI")
+        self.assertEqual(window.result["daw"], "ableton_live")
+        self.assertTrue(window.midi_button.isEnabled())
+        self.assertFalse(window.chart_button.isEnabled())
+        self.assertEqual(window.stage_labels[1].text(), "2  匯出 MIDI")
+
     def test_bad_tail_limits_are_inline_errors(self):
         window = self.create_window(self.success)
         window.initial_tail.setValue(10)

@@ -110,12 +110,12 @@ def export(document: dict, destination: Path, force: bool = False) -> None:
 
 
 def _parse_args(argv):
-    parser = argparse.ArgumentParser(description=tr('FL Studio structure extraction and isolated keysound preparation'))
+    parser = argparse.ArgumentParser(description=tr('DAW project extraction, MIDI preservation and FL Studio keysound conversion'))
     parser.add_argument("--version", action="version", version=__version__, help=tr("Show program version and exit"))
     sub = parser.add_subparsers(dest="command", required=True)
     gui_cmd = sub.add_parser("gui", help=tr('Open the PyQt6 desktop interface'))
     gui_cmd.add_argument("source", nargs="?", type=Path, help=tr('Optional project to prefill'))
-    convert_cmd = sub.add_parser("convert", help=tr('FLP -> adaptive keysounds -> BMS in one command'))
+    convert_cmd = sub.add_parser("convert", help=tr('Convert FLP to BMS or ALS Arrangement to MIDI in one command'))
     convert_cmd.add_argument("source", type=Path)
     convert_cmd.add_argument("--out", type=Path, help=tr('New output directory; default output/<project>-bms (auto-numbered if needed)'))
     convert_cmd.add_argument("--fl-exe", type=Path, help=tr('Override automatic FL Studio discovery'))
@@ -134,7 +134,7 @@ def _parse_args(argv):
     convert_cmd.add_argument("--lead-in-bars", type=int, default=1)
     convert_cmd.add_argument("--play-channels")
     convert_cmd.add_argument("--encoding", choices=("utf-8", "cp932"), default="utf-8")
-    extract = sub.add_parser("extract", help=tr('Extract FLP notes and playlist geometry to JSON/CSV'))
+    extract = sub.add_parser("extract", help=tr('Extract FLP/ALS timelines to JSON/CSV; ALS also exports MIDI'))
     extract.add_argument("source", type=Path)
     extract.add_argument("--out", type=Path, help=tr('Output directory (default: output/<source stem>)'))
     extract.add_argument("--force", action="store_true", help=tr('Replace generated output files'))
@@ -281,6 +281,18 @@ def _run(args):
                 return 0
             print(msg('Created {p0} keysounds; all audio checks passed.', p0=len(result['keys'])))
             print(msg('Output: {p0}', p0=(args.out or args.manifest.resolve().parent / 'keysounds').resolve()))
+            return 0
+        if args.source.suffix.lower() == ".als":
+            from .als import extract_file as extract_als
+            from .als_export import export_document
+            document = extract_als(args.source)
+            destination = args.out or Path("output") / args.source.stem
+            report = export_document(document, destination, force=args.force)
+            for warning in report["warnings"]:
+                print(warning, file=sys.stderr)
+            summary = document["summary"]
+            print(msg("ALS: {p0} tracks, {p1} Arrangement clips, {p2} timeline notes, {p3} MIDI notes", p0=summary["tracks"], p1=summary["arrangement_clips"], p2=summary["timeline_notes"], p3=report["midi_only_notes"]))
+            print(msg("Output: {p0}", p0=destination.resolve()))
             return 0
         document = extract_file(args.source)
         document["_source_path"] = args.source.resolve()

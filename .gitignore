@@ -11,3 +11,6 @@ output/
 # Local DAW projects and their backups are never source fixtures.
 *.[fF][lL][pP]
 *.[fF][lL][pP].[bB][aA][kK]
+*.[aA][lL][sS]
+*.[aA][lL][sS].[bB][aA][kK]
+*.[aA][sS][dD]

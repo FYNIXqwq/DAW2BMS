@@ -165,12 +165,12 @@ class ProjectDropArea(QFrame):
 
     def dragEnterEvent(self, event):
         urls = event.mimeData().urls()
-        if len(urls) == 1 and urls[0].isLocalFile() and Path(urls[0].toLocalFile()).suffix.lower() == ".flp":
+        if len(urls) == 1 and urls[0].isLocalFile() and Path(urls[0].toLocalFile()).suffix.lower() in (".flp", ".als"):
             event.acceptProposedAction()
 
     def dropEvent(self, event):
         urls = event.mimeData().urls()
-        if len(urls) == 1 and urls[0].isLocalFile() and Path(urls[0].toLocalFile()).suffix.lower() == ".flp":
+        if len(urls) == 1 and urls[0].isLocalFile() and Path(urls[0].toLocalFile()).suffix.lower() in (".flp", ".als"):
             self.projectDropped.emit(urls[0].toLocalFile())
             event.acceptProposedAction()
 
@@ -193,12 +193,15 @@ class MainWindow(QMainWindow):
         self.run_directory = None
         self.warning_count = 0
         self.current_stage = -1
+        self.active_format = None
         self.started_at = None
         self._bind(self, 'setWindowTitle', 'DAW2BMS · Project to chart')
         self.setMinimumSize(960, 700)
         self.resize(1240, 820)
         self.setStyleSheet(STYLE)
         self._build()
+        self.source_edit.textChanged.connect(self.update_source_type)
+        self.update_source_type()
         self.set_language(self.language_setting, persist=False)
         self.elapsed_timer = QTimer(self)
         self.elapsed_timer.setInterval(1000)
@@ -292,7 +295,7 @@ class MainWindow(QMainWindow):
         titles = QVBoxLayout()
         titles.setSpacing(4)
         titles.addWidget(self._label('DAW2BMS', 'productTitle'))
-        subtitle = self._label('From FL Studio projects to playable charts', role='secondary')
+        subtitle = self._label('FL Studio to BMS · Ableton Arrangement to MIDI', role='secondary')
         subtitle.setWordWrap(False)
         titles.addWidget(subtitle)
         header.addLayout(titles)
@@ -329,14 +332,15 @@ class MainWindow(QMainWindow):
         form.setContentsMargins(0, 0, 6, 0)
         form.setSpacing(10)
         self.source_edit = QLineEdit()
-        self._bind(self.source_edit, 'setPlaceholderText', 'Choose or drop an .flp project')
-        self._bind(self.source_edit, 'setAccessibleName', 'FLP project file')
+        self._bind(self.source_edit, 'setPlaceholderText', 'Choose or drop an .flp or .als project')
+        self._bind(self.source_edit, 'setAccessibleName', 'FLP / ALS project file')
         self.source_edit.setText(self.settings.value("last_source", "", type=str))
-        source_label = self._label('FLP project file')
+        source_label = self._label('FLP / ALS project file')
         source_label.setBuddy(self.source_edit)
         form.addWidget(source_label)
         form.addWidget(self._path_row(self.source_edit, self.browse_source))
-        form.addWidget(self._label('Drop one FLP file here. The source project stays unchanged.', role='hint'))
+        self.format_hint = self._label('Drop one FLP or ALS file here. The source project stays unchanged.', role='hint')
+        form.addWidget(self.format_hint)
         form.addSpacing(8)
         self.output_edit = QLineEdit(self.settings.value("output_parent", str(Path.cwd() / "output"), type=str))
         self._bind(self.output_edit, 'setAccessibleName', 'Output parent directory')
@@ -363,7 +367,8 @@ class MainWindow(QMainWindow):
         self.fl_edit = QLineEdit(self.settings.value("fl_exe", "", type=str))
         self._bind(self.fl_edit, 'setPlaceholderText', 'Leave blank to find FL Studio automatically')
         self._bind(self.fl_edit, 'setAccessibleName', 'FL Studio executable')
-        self._add_row(settings_layout, 'FL Studio', self._path_row(self.fl_edit, self.browse_fl))
+        self.fl_row = self._path_row(self.fl_edit, self.browse_fl)
+        self._add_row(settings_layout, 'FL Studio', self.fl_row)
         self.title_edit, self.artist_edit = QLineEdit(), QLineEdit()
         self._bind(self.title_edit, 'setPlaceholderText', 'Use the project title or filename')
         self._bind(self.artist_edit, 'setPlaceholderText', 'Use the project author')
@@ -373,7 +378,8 @@ class MainWindow(QMainWindow):
         self._bind(self.resources_edit, 'setPlaceholderText', 'Extra resource folders, one per line (optional)')
         self.resources_edit.setMaximumHeight(78)
         self._bind(self.resources_edit, 'setAccessibleName', 'Extra resource folders')
-        self._add_row(settings_layout, 'Resource folders', self._path_row(self.resources_edit, self.browse_resource, 'Add…'))
+        self.resource_row = self._path_row(self.resources_edit, self.browse_resource, 'Add…')
+        self._add_row(settings_layout, 'Resource folders', self.resource_row)
         self.lead_in = QSpinBox()
         self.lead_in.setRange(0, 998)
         self.lead_in.setValue(1)
@@ -504,10 +510,20 @@ class MainWindow(QMainWindow):
         if not self.is_running():
             self.source_edit.setText(path)
 
+    def update_source_type(self):
+        als = Path(self.source_edit.text().strip().strip('"')).suffix.lower() == ".als"
+        for widget in (self.fl_row, self.resource_row, self.title_edit, self.artist_edit, self.lead_in,
+                       self.initial_tail, self.max_tail, self.attempts, self.threshold, self.timeout, self.dedupe):
+            widget.setEnabled(not als)
+        self._bind(self.format_hint, "setText", "ALS exports Arrangement MIDI and JSON only; Live is not required and audio rendering is disabled."
+                   if als else "Drop one FLP or ALS file here. The source project stays unchanged.")
+        if self.active_format is None:
+            self._bind(self.stage_labels[1], "setText", "2  Export MIDI" if als else "2  Render and slice")
+
     def browse_source(self):
         if self.is_running():
             return
-        path, _ = QFileDialog.getOpenFileName(self, self.t('Choose FL Studio project'), self.source_edit.text(), self.t('FL Studio projects (*.flp *.FLP)'), options=QFileDialog.Option.DontUseNativeDialog)
+        path, _ = QFileDialog.getOpenFileName(self, self.t('Choose DAW project'), self.source_edit.text(), self.t('DAW projects (*.flp *.FLP *.als *.ALS)'), options=QFileDialog.Option.DontUseNativeDialog)
         if path:
             self.set_source(path)
 
@@ -532,8 +548,9 @@ class MainWindow(QMainWindow):
 
     def collect_request(self):
         source = Path(self.source_edit.text().strip().strip('"')).expanduser()
-        if not source.is_file() or source.suffix.lower() != ".flp":
-            raise FlpError(msg('Choose an existing .flp project file.'))
+        if not source.is_file() or source.suffix.lower() not in (".flp", ".als"):
+            raise FlpError(msg('Choose an existing .flp or .als project file.'))
+        als = source.suffix.lower() == ".als"
         root_text = self.output_edit.text().strip().strip('"')
         if not root_text:
             raise FlpError(msg('Choose an output location.'))
@@ -541,13 +558,13 @@ class MainWindow(QMainWindow):
         if parent.exists() and not parent.is_dir():
             raise FlpError(msg('The output location must be a directory.'))
         fl_text = self.fl_edit.text().strip().strip('"')
-        fl_exe = Path(fl_text).expanduser().resolve() if fl_text else None
+        fl_exe = Path(fl_text).expanduser().resolve() if fl_text and not als else None
         if fl_exe and (not fl_exe.is_file() or fl_exe.suffix.lower() != ".exe"):
             raise FlpError(msg('Invalid FL Studio path. Choose an .exe file or leave blank for automatic discovery.'))
-        if self.max_tail.value() < self.initial_tail.value():
+        if not als and self.max_tail.value() < self.initial_tail.value():
             raise FlpError(msg('The maximum tail probe cannot be shorter than the initial probe.'))
         resources = tuple(Path(line.strip().strip('"')).expanduser().resolve()
-                          for line in self.resources_edit.toPlainText().splitlines() if line.strip())
+                          for line in self.resources_edit.toPlainText().splitlines() if line.strip()) if not als else ()
         if any(not path.is_dir() for path in resources):
             raise FlpError(msg('A resource folder does not exist. Check Advanced settings.'))
         options = {"fl_exe": fl_exe, "title": self.title_edit.text().strip() or None,
@@ -573,6 +590,7 @@ class MainWindow(QMainWindow):
         self.settings.setValue("fl_exe", self.fl_edit.text().strip())
         self.settings.sync()
         self.run_directory, self.result, self.pending_outcome = destination, None, None
+        self.active_format = source.suffix.lower()
         self.log.clear()
         self.warning_log.clear()
         self._log_messages.clear()
@@ -609,6 +627,8 @@ class MainWindow(QMainWindow):
         self.current_stage = current
         for index, widget in enumerate(self.stage_labels):
             self._bind(widget, 'setText', ('1  Read project', '2  Render and slice', '3  Export chart')[index])
+            if index == 1 and self.active_format == ".als":
+                self._bind(widget, 'setText', '2  Export MIDI')
             state = "done" if index < current else "active" if index == current else "idle"
             if error and index == current:
                 state = "error"
@@ -630,6 +650,17 @@ class MainWindow(QMainWindow):
             self._refresh_tabs()
             self.tabs.tabBar().setTabTextColor(1, QColor("#ffd18a"))
         if self.worker and self.worker.isInterruptionRequested():
+            return
+        if message.startswith("[2/3] Exporting ALS Arrangement MIDI"):
+            self.set_stage(1)
+            self._bind(self.operation_title, "setText", "Exporting Arrangement MIDI")
+            self._bind(self.operation_detail, "setText", "ALS notes remain in MIDI/JSON; no instrument rendering is performed.")
+            return
+        if self.active_format == ".als" and message.startswith("[3/3] BMS export skipped"):
+            self.set_stage(2)
+            self._bind(self.stage_labels[2], "setText", "3  Chart skipped")
+            self._bind(self.operation_title, "setText", "MIDI preserved")
+            self._bind(self.operation_detail, "setText", "ALS notes remain in MIDI/JSON; no instrument rendering is performed.")
             return
         for prefix, stage, title, detail in (
             ("[1/3]", 0, 'Reading project', 'Extracting notes, Playlist clips and resource references.'),

@@ -32,5 +32,7 @@ No computer-use automation may be used; testing can exercise this application's 
 ## Evidence and boundaries
 
 The repository implements FLP extraction, dependency checks, adaptive rendering, MIDI fallback and 7-key test charts.
+ALS is now supported for read-only Arrangement extraction and MIDI/JSON export without Ableton Live.
+ALS instrument rendering remains disabled; Session, frozen and take-lane material must not be mistaken for Arrangement playback.
 The GUI must distinguish complete audio, partial audio with MIDI fallback, MIDI-only results, failure and cancellation.
 FL rendering is a blocking subprocess in the current backend. Cooperative stopping waits for the current render to finish.

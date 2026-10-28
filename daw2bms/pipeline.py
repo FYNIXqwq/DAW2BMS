@@ -54,6 +54,9 @@ def convert(source: Path, destination: Path | None = None, *, fl_exe: Path | Non
     destination = (destination.resolve() if destination is not None else default_destination(source))
     if destination.exists():
         raise FlpError(msg('Output directory already exists; choose a new --out: {p0}', p0=destination))
+    if source.suffix.lower() == ".als":
+        from .als_export import convert_als
+        return convert_als(source, destination, channels=channels, arrangement_id=arrangement_id, progress=progress)
     executable = find_fl_executable(fl_exe)
     progress(msg('[1/3] Reading FLP: {p0}', p0=source))
     document = extract_file(source)
