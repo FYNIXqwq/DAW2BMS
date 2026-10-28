@@ -5,6 +5,8 @@ third-party sample libraries remain unverified and are reported as such.
 """
 from __future__ import annotations
 
+from .i18n import msg, JoinedMessages
+
 import os
 from pathlib import Path
 import re
@@ -141,7 +143,7 @@ def inspect_plugin(name: str, state: bytes, inventory: dict[str, Path], extras: 
     result = {"plugin": name, "missing": [], "blockers": [], "unverified": [], "resolved_vst": None}
     if not name:
         if state:
-            result["blockers"].append({"kind": "unknown_plugin", "resource": "Plugin identity is unavailable"})
+            result["blockers"].append({"kind": "unknown_plugin", "resource": msg('Plugin identity is unavailable')})
         return result
     if name.casefold() == "fruity wrapper":
         plugin_file = vst_path(state)
@@ -153,13 +155,13 @@ def inspect_plugin(name: str, state: bytes, inventory: dict[str, Path], extras: 
             else:
                 result["missing"].append({"kind": "vst", "resource": plugin_file})
         else:
-            result["blockers"].append({"kind": "unresolved_plugin", "resource": "Cannot resolve Fruity Wrapper plugin binary"})
+            result["blockers"].append({"kind": "unresolved_plugin", "resource": msg('Cannot resolve Fruity Wrapper plugin binary')})
         result["unverified"].append("Plugin-internal libraries and activation are not checked")
     elif _plugin_token(name) not in inventory:
         result["missing"].append({"kind": "native_plugin", "resource": name,
-                                  "detail": "No matching native plugin binary in configured installation/resource directories"})
+                                  "detail": msg('No matching native plugin binary in configured installation/resource directories')})
     if name.casefold() == "patcher":
-        result["blockers"].append({"kind": "opaque_plugin_container", "resource": "Patcher nested plugin dependencies are not decoded"})
+        result["blockers"].append({"kind": "opaque_plugin_container", "resource": msg('Patcher nested plugin dependencies are not decoded')})
     return result
 
 
@@ -171,16 +173,15 @@ def resource_warnings(resources: list[dict]):
             continue
         own = resource["missing"] + resource.get("blockers", [])
         if own:
-            detail = ", ".join(item["resource"] for item in own)
-            yield f"WARNING: Channel {resource['channel_id']} ({resource['channel_name']}): unavailable/unverified {detail}; MIDI only, audio skipped."
+            detail = JoinedMessages(item["resource"] for item in own)
+            yield msg('WARNING: Channel {p0} ({p1}): unavailable/unverified {p2}; MIDI only, audio skipped.', p0=resource['channel_id'], p1=resource['channel_name'], p2=detail)
         for effect in resource.get("blocking_effects", []):
             identity = (effect["insert_index"], effect["slot_index"], effect["plugin"])
             if identity in effects:
                 continue
             effects.add(identity)
-            detail = ", ".join(item["resource"] for item in effect["missing"] + effect["blockers"])
-            yield (f"WARNING: Mixer effect {effect['plugin']!r} (insert {effect['insert_index']}, slot {effect['slot_index']}): "
-                   f"unavailable/unverified {detail}; routing is unresolved, all selected notes kept as MIDI; audio skipped.")
+            detail = JoinedMessages(item["resource"] for item in effect["missing"] + effect["blockers"])
+            yield (msg('WARNING: Mixer effect {p0!r} (insert {p1}, slot {p2}): unavailable/unverified {p3}; routing is unresolved, all selected notes kept as MIDI; audio skipped.', p0=effect['plugin'], p1=effect['insert_index'], p2=effect['slot_index'], p3=detail))
 
 
 def check_resources(document: dict, source: Path, source_bytes: bytes, *, fl_exe: Path | None = None,
@@ -205,7 +206,7 @@ def check_resources(document: dict, source: Path, source_bytes: bytes, *, fl_exe
         if checked["resolved_vst"]:
             recorded = vst_path(effect["state"])
             if Path(recorded).resolve() != Path(checked["resolved_vst"]):
-                checked["blockers"].append({"kind": "effect_relocation", "resource": "Effect binary relocation is not yet applied to mixer state"})
+                checked["blockers"].append({"kind": "effect_relocation", "resource": msg('Effect binary relocation is not yet applied to mixer state')})
         if checked["missing"] or checked["blockers"]:
             effects.append(checked)
     results = []
@@ -216,7 +217,7 @@ def check_resources(document: dict, source: Path, source_bytes: bytes, *, fl_exe
                  "resolved_vst": None, "blocking_effects": effects}
         if channel["id"] in (midi_only or set()):
             entry["missing"].append({"kind": "user_override" if midi_only_reason is None else "renderer_unavailable",
-                                     "resource": midi_only_reason or "Explicit --midi-only selection"})
+                                     "resource": midi_only_reason or msg("Explicit --midi-only selection")})
         sample = channel["sample_path"]
         if sample:
             candidates = []
@@ -245,11 +246,11 @@ def check_resources(document: dict, source: Path, source_bytes: bytes, *, fl_exe
             entry[key].extend(checked[key])
         entry["resolved_vst"] = checked["resolved_vst"]
         if not name and channel["type_raw"] not in (0, 3, 5, None):
-            entry["blockers"].append({"kind": "unknown_generator", "resource": "Generator plugin identity is unavailable"})
+            entry["blockers"].append({"kind": "unknown_generator", "resource": msg('Generator plugin identity is unavailable')})
         if name.casefold() == "flex":
             pack = flex_pack_name(state)
             if pack is None:
-                entry["blockers"].append({"kind": "unknown_flex_state", "resource": "FLEX pack name cannot be decoded from this state version"})
+                entry["blockers"].append({"kind": "unknown_flex_state", "resource": msg('FLEX pack name cannot be decoded from this state version')})
             elif (pack + ".flexpack").casefold() not in flex_files:
                 entry["missing"].append({"kind": "flex_pack", "resource": pack + ".flexpack",
                                          "searched_directories": [str(p) for p in flex_dirs]})

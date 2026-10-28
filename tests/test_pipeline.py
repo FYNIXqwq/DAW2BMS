@@ -95,7 +95,7 @@ class PipelineTests(BankFixture):
         with patch("daw2bms.pipeline.default_destination", return_value=self.destination), \
                 patch("daw2bms.pipeline.find_fl_executable", return_value=None), \
                 contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-            code = main(["convert", str(self.source)])
+            code = main(["--lang", "en", "convert", str(self.source)])
         self.assertEqual(code, 0)
         self.assertIn("WARNING:", err.getvalue())
         self.assertNotIn("WARNING:", out.getvalue())

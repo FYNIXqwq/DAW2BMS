@@ -5,6 +5,8 @@ for observations, source references and unverified playback semantics.
 """
 from __future__ import annotations
 
+from .i18n import msg
+
 from collections import Counter
 from dataclasses import dataclass
 import hashlib
@@ -31,14 +33,14 @@ class Event:
 
 def read_events(data: bytes) -> tuple[dict, list[Event]]:
     if len(data) < 22:
-        raise FlpError("Truncated FLP header (need at least 22 bytes)")
+        raise FlpError(msg('Truncated FLP header (need at least 22 bytes)'))
     magic, size, fmt, channels, ppq = struct.unpack_from("<4sIHHH", data)
     if magic != b"FLhd" or size != 6 or fmt != 0 or data[14:18] != b"FLdt":
-        raise FlpError("Expected an FLP project with FLhd(6), format 0 and FLdt")
+        raise FlpError(msg('Expected an FLP project with FLhd(6), format 0 and FLdt'))
     if not ppq:
-        raise FlpError("PPQ must be greater than zero")
+        raise FlpError(msg('PPQ must be greater than zero'))
     if struct.unpack_from("<I", data, 18)[0] != len(data) - 22:
-        raise FlpError("FLdt length does not match file size")
+        raise FlpError(msg('FLdt length does not match file size'))
 
     events = []
     version = None
@@ -57,31 +59,31 @@ def read_events(data: bytes) -> tuple[dict, list[Event]]:
             length = 0
             for shift in range(0, 35, 7):
                 if pos == len(data):
-                    raise FlpError(f"Truncated event length at byte {offset}")
+                    raise FlpError(msg('Truncated event length at byte {p0}', p0=offset))
                 byte = data[pos]
                 pos += 1
                 length |= (byte & 127) << shift
                 if byte < 128:
                     break
             else:
-                raise FlpError(f"Oversized event length at byte {offset}")
+                raise FlpError(msg('Oversized event length at byte {p0}', p0=offset))
         if length > len(data) - pos:
-            raise FlpError(f"Event {event_id} at byte {offset} exceeds FLdt boundary")
+            raise FlpError(msg('Event {p0} at byte {p1} exceeds FLdt boundary', p0=event_id, p1=offset))
         event = Event(event_id, offset, pos, data[pos:pos + length])
         if event_id == 199:
             try:
                 version_text = event.data.decode("ascii").rstrip("\0")
                 version = tuple(int(part) for part in version_text.split("."))
             except (ValueError, UnicodeError) as exc:
-                raise FlpError("Invalid FL version string") from exc
+                raise FlpError(msg('Invalid FL version string')) from exc
             if len(version) != 4 or version[0] not in (25, 26):
-                raise FlpError(f"This prototype targets FL 25/26 saves, got {version_text}")
+                raise FlpError(msg('This prototype targets FL 25/26 saves, got {p0}', p0=version_text))
         if not version:
-            raise FlpError("Expected the FL version event before project data")
+            raise FlpError(msg('Expected the FL version event before project data'))
         events.append(event)
         pos += length
     if not events:
-        raise FlpError("Empty FLdt event stream")
+        raise FlpError(msg('Empty FLdt event stream'))
     return {"channel_count_header": channels, "ppq": ppq,
             "saved_version": ".".join(map(str, version))}, events
 
@@ -90,18 +92,18 @@ def text_value(event: Event) -> str:
     try:
         return event.data.decode("utf-16-le").rstrip("\0")
     except UnicodeError as exc:
-        raise FlpError(f"Invalid UTF-16 text in event {event.id} at byte {event.offset}") from exc
+        raise FlpError(msg('Invalid UTF-16 text in event {p0} at byte {p1}', p0=event.id, p1=event.offset)) from exc
 
 
 def parse_notes(event: Event) -> list[dict]:
     layout = struct.Struct("<IHHIHH8B")
     if len(event.data) % layout.size:
-        raise FlpError(f"Pattern notes at {event.offset} are not 24-byte records")
+        raise FlpError(msg('Pattern notes at {p0} are not 24-byte records', p0=event.offset))
     result = []
     for index, fields in enumerate(layout.iter_unpack(event.data)):
         pos, flags, channel, length, key, group, fine, reserved, release, color, pan, velocity, mod_x, mod_y = fields
         if key > 131:
-            raise FlpError(f"Invalid FL key {key} at note block {event.offset}")
+            raise FlpError(msg('Invalid FL key {p0} at note block {p1}', p0=key, p1=event.offset))
         result.append({
             "index": index, "channel_id": channel, "position_ticks": pos,
             "length_ticks": length, "key": key,
@@ -119,19 +121,18 @@ def parse_notes(event: Event) -> list[dict]:
 def parse_clips(event: Event) -> list[dict]:
     stride = 80
     if len(event.data) % stride:
-        raise FlpError(f"Unsupported playlist record layout at byte {event.offset}: "
-                       f"{len(event.data)} bytes, expected multiples of 80 for FL 25/26")
+        raise FlpError(msg('Unsupported playlist record layout at byte {p0}: {p1} bytes, expected multiples of 80 for FL 25/26', p0=event.offset, p1=len(event.data)))
     result = []
     for index in range(len(event.data) // stride):
         offset = index * stride
         pos, base, item, length, reversed_track, group, u1, flags, u2 = struct.unpack_from("<IHHIHHHHI", event.data, offset)
         if base != 20480 or reversed_track > 499:
-            raise FlpError(f"Unsupported playlist record at byte {event.data_offset + offset}")
+            raise FlpError(msg('Unsupported playlist record at byte {p0}', p0=event.data_offset + offset))
         raw_start, raw_end = struct.unpack_from("<II", event.data, offset + 24)
         is_pattern = item > base
         scale = struct.unpack_from("<d", event.data, offset + 64)[0]
         if not math.isfinite(scale) or scale <= 0:
-            raise FlpError(f"Invalid playlist scale at byte {event.data_offset + offset}")
+            raise FlpError(msg('Invalid playlist scale at byte {p0}', p0=event.data_offset + offset))
         clip = {
             "index": index, "native_id": struct.unpack_from("<I", event.data, offset + 32)[0],
             "kind": "pattern" if is_pattern else "channel",
@@ -184,7 +185,7 @@ def extract_file(path: str | Path) -> dict:
             scope = "channel"
             current_pattern = marker = None
             if value in channels:
-                raise FlpError(f"Duplicate channel id {value}")
+                raise FlpError(msg('Duplicate channel id {p0}', p0=value))
             current_channel = {"id": value, "name": None, "type_raw": None,
                                "enabled": None, "plugin_internal_name": None, "sample_path": None}
             channels[value] = current_channel
@@ -198,7 +199,7 @@ def extract_file(path: str | Path) -> dict:
             scope = "arrangement"
             current_channel = current_pattern = current_track = marker = None
             if any(a["id"] == value for a in arrangements):
-                raise FlpError(f"Duplicate arrangement id {value}")
+                raise FlpError(msg('Duplicate arrangement id {p0}', p0=value))
             current_arrangement = {"id": value, "name": None, "tracks": [], "clips": [], "markers": []}
             arrangements.append(current_arrangement)
         elif eid == 98:
@@ -226,11 +227,11 @@ def extract_file(path: str | Path) -> dict:
                 current_pattern["looped"] = bool(value)
             elif eid == 224:
                 if current_pattern["notes"]:
-                    raise FlpError(f"Multiple note blocks for pattern {current_pattern['id']}")
+                    raise FlpError(msg('Multiple note blocks for pattern {p0}', p0=current_pattern['id']))
                 current_pattern["notes"] = parse_notes(event)
             else:
                 if len(event.data) % 12:
-                    raise FlpError("Unsupported pattern controller layout")
+                    raise FlpError(msg('Unsupported pattern controller layout'))
                 current_pattern["controller_record_count"] += len(event.data) // 12
         elif scope == "arrangement" and eid == 241:
             current_arrangement["name"] = text_value(event)
@@ -241,7 +242,7 @@ def extract_file(path: str | Path) -> dict:
             current_arrangement["clips"].extend(clips)
         elif scope == "arrangement" and eid == 238:
             if len(event.data) < 13:
-                raise FlpError("Truncated playlist track descriptor")
+                raise FlpError(msg('Truncated playlist track descriptor'))
             current_track = {"id": struct.unpack_from("<I", event.data)[0], "name": None,
                              "enabled": bool(event.data[12]), "source_byte_offset": event.data_offset}
             current_arrangement["tracks"].append(current_track)
@@ -261,28 +262,27 @@ def extract_file(path: str | Path) -> dict:
             handled[eid] += 1
 
     if len(channels) != project["channel_count_header"]:
-        raise FlpError(f"Channel count mismatch: header {project['channel_count_header']}, decoded {len(channels)}")
+        raise FlpError(msg('Channel count mismatch: header {p0}, decoded {p1}', p0=project['channel_count_header'], p1=len(channels)))
     for pattern in patterns.values():
         for note in pattern["notes"]:
             if note["channel_id"] not in channels:
-                raise FlpError(f"Pattern {pattern['id']} references missing channel {note['channel_id']}")
+                raise FlpError(msg('Pattern {p0} references missing channel {p1}', p0=pattern['id'], p1=note['channel_id']))
     if project["swing_raw"]:
-        warn("SWING_NOT_APPLIED", "Global swing is present; exported ticks remain stored positions.")
+        warn("SWING_NOT_APPLIED", msg('Global swing is present; exported ticks remain stored positions.'))
     if any(p["controller_record_count"] for p in patterns.values()) or any(c["type_raw"] == 5 for c in channels.values()):
-        warn("AUTOMATION_NOT_EVALUATED", "Automation is present. Tempo and playback modulation are not evaluated.")
-    warn("STRUCTURAL_TIMELINE", "Timeline is a geometric, single-pass placement of stored notes, not a playback simulation. "
-         "Clip mute flags, channel looping, swing, transposition and automation are not applied. No seconds are inferred.")
+        warn("AUTOMATION_NOT_EVALUATED", msg('Automation is present. Tempo and playback modulation are not evaluated.'))
+    warn("STRUCTURAL_TIMELINE", msg('Timeline is a geometric, single-pass placement of stored notes, not a playback simulation. Clip mute flags, channel looping, swing, transposition and automation are not applied. No seconds are inferred.'))
     for arrangement in arrangements:
         track_ids = [t["id"] for t in arrangement["tracks"]]
         if len(track_ids) != len(set(track_ids)):
-            raise FlpError("Duplicate playlist track identifiers")
+            raise FlpError(msg('Duplicate playlist track identifiers'))
         for clip in arrangement["clips"]:
             if clip["track_id"] not in track_ids:
-                raise FlpError(f"Clip references missing track {clip['track_id']}")
+                raise FlpError(msg('Clip references missing track {p0}', p0=clip['track_id']))
             references = patterns if clip["kind"] == "pattern" else channels
             ref_id = clip["pattern_id"] if clip["kind"] == "pattern" else clip["channel_id"]
             if ref_id not in references:
-                raise FlpError(f"Playlist clip references missing {clip['kind']} {ref_id}")
+                raise FlpError(msg('Playlist clip references missing {p0} {p1}', p0=clip['kind'], p1=ref_id))
         arrangement["timeline_notes"] = expand_timeline(arrangement, patterns, channels, project["ppq"], warn)
 
     histogram = Counter(e.id for e in events)
@@ -320,11 +320,11 @@ def expand_timeline(arrangement: dict, patterns: dict, channels: dict, ppq: int,
         source_end = clip["source_end_ticks"]
         end = start + clip["length_ticks"]
         if pattern["looped"]:
-            reason = "Explicit pattern looping is not implemented."
+            reason = msg('Explicit pattern looping is not implemented.')
         elif clip["scale_raw"] != 1.0:
-            reason = "Non-unit clip scaling is not implemented."
+            reason = msg('Non-unit clip scaling is not implemented.')
         elif start < 0 or (source_end is not None and source_end != end):
-            reason = "Source offsets disagree with the supported single-pass clip window."
+            reason = msg('Source offsets disagree with the supported single-pass clip window.')
         if reason:
             clip["expansion_status"] = "unsupported"
             warn("CLIP_NOT_EXPANDED", reason, arrangement_id=arrangement["id"], clip_index=clip["index"])

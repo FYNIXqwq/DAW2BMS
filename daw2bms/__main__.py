@@ -1,6 +1,9 @@
 """CLI: python -m daw2bms extract song.flp --out output/song"""
 from __future__ import annotations
 
+from .i18n import (msg, tr, localized_print as print, split_language_args, language_context,
+                   argparse_translations, LANGUAGES, configure_console, resolve_language)
+
 import argparse
 import csv
 import json
@@ -23,38 +26,39 @@ def summary_text(document: dict) -> str:
     p, s = document["project"], document["summary"]
     signature = p["time_signature"]
     lines = [
-        "DAW2BMS — FLP 结构提取报告", "",
-        f"文件：{document['source']['file']}",
-        f"文件保存版本：FL Studio {p['saved_version']}",
-        f"PPQ：{p['ppq']} ticks / 四分音符",
-        f"文件中保存的 BPM：{p['stored_tempo_bpm']}（不是完整变速曲线）",
-        f"项目拍号字段：{signature['numerator']}/{signature['denominator']}",
-        f"Channel Rack：{s['channels']} 个通道；Pattern：{s['patterns']} 个；原始音符：{s['pattern_notes']}",
-        f"Arrangement：{s['arrangements']} 个；Playlist 片段：{s['playlist_clips']} 个；展开记录：{s['timeline_notes']}",
-        "", "Pattern 音符数（不含 Playlist 重复放置）：",
+        tr("DAW2BMS — FLP structure report"), "",
+        tr("File: {p0}", p0=document["source"]["file"]),
+        tr("Saved FL Studio version: {p0}", p0=p["saved_version"]),
+        tr("PPQ: {p0} ticks per quarter note", p0=p["ppq"]),
+        tr("Stored BPM: {p0} (not a complete tempo map)", p0=p["stored_tempo_bpm"]),
+        tr("Project time signature: {p0}/{p1}", p0=signature["numerator"], p1=signature["denominator"]),
+        tr("{p0} channels, {p1} patterns, {p2} pattern notes, {p3} clips, {p4} timeline notes",
+           p0=s["channels"], p1=s["patterns"], p2=s["pattern_notes"], p3=s["playlist_clips"], p4=s["timeline_notes"]),
+        "", tr("Pattern note counts (before Playlist repetitions):"),
     ]
     for pattern in document["patterns"]:
-        lines.append(f"  {pattern['id']:>3}  {pattern['name'] or '(未命名)'}：{len(pattern['notes'])}")
+        lines.append(f"  {pattern['id']:>3}  {pattern['name'] or tr('(unnamed)')}: {len(pattern['notes'])}")
     for arrangement in document["arrangements"]:
         end = max((c["end_ticks"] for c in arrangement["clips"]), default=0)
         active = len({c["track_id"] for c in arrangement["clips"]})
-        lines += ["", f"Arrangement {arrangement['id']}：{arrangement['name'] or '(未命名)'}",
-                  f"  {active} 条有片段的轨道；结束位置 {end} ticks / {end / p['ppq']:g} beats",
-                  "  片段编号  轨道  Pattern  起点(tick)  长度(tick)  源起点(tick)  展开状态"]
+        lines += ["", f"Arrangement {arrangement['id']}: {arrangement['name'] or tr('(unnamed)')}",
+                  tr("{p0} tracks with clips; end {p1} ticks / {p2:g} quarter-note beats", p0=active, p1=end, p2=end / p['ppq']),
+                  tr("Clip / Track / Pattern / Start tick / Length / Source start / Expansion")]
         for clip in sorted(arrangement["clips"], key=lambda c: (c["position_ticks"], c["track_id"], c["index"])):
             lines.append(f"  {clip['index']:>8}  {clip['track_id']:>4}  {str(clip['pattern_id']):>7}  "
                          f"{clip['position_ticks']:>10}  {clip['length_ticks']:>10}  "
                          f"{str(clip['source_start_ticks']):>12}  {clip['expansion_status']}")
-    lines += ["", "字段约定与边界：",
-        "  tick 和 beat 均从 0 开始；beat = tick / PPQ（四分音符），轨道编号从 1 开始。",
-        "  key_name_fl 使用 FL 命名：key 60 = C5；不是科学音高命名中的 C4。",
-        "  length_ticks=0 是步进触发音符，保留为 0，不猜测音频时长。",
-        "  timeline 是单次 Pattern 放置后的几何交集；visible_* 为片段内可见范围，原始音符时值不变。",
-        "  静音状态不用于删音；clip_muted=null 表示未解码，不代表未静音。",
-        "  不计算循环重复、自动化、摆动、移调、音频或插件播放；不输出推断秒数。",
-        "  本报告不能替代 FL Studio 实际播放结果；不支持的片段仍保留原始结构。", "", "诊断："]
-    lines.extend(f"  [{w['code']}] {w['message']}" for w in document["warnings"])
-    lines += ["", f"输入 SHA-256：{document['source']['sha256']}"]
+    lines += ["", tr("Conventions and limitations:"),
+        tr("Ticks and beats start at zero; beat = tick / PPQ. Track numbers start at one."),
+        tr("FL pitch naming: key 60 is C5, not scientific-pitch C4."),
+        tr("Zero-length step triggers remain zero; no audio duration is inferred."),
+        tr("visible_* records clip intersections; original note durations remain unchanged."),
+        tr("Mute state does not remove notes; clip_muted=null means unknown, not unmuted."),
+        tr("Looping, automation, swing, transposition and plugin/audio playback are not simulated."),
+        "", tr("Diagnostics:")]
+    from .i18n import render
+    lines.extend(f"  [{w['code']}] {render(w['message'])}" for w in document["warnings"])
+    lines += ["", tr("Input SHA-256: {p0}", p0=document['source']['sha256'])]
     return "\n".join(lines) + "\n"
 
 
@@ -62,10 +66,10 @@ def export(document: dict, destination: Path, force: bool = False) -> None:
     names = ("project.json", "pattern_notes.csv", "playlist.csv", "timeline_notes.csv", "summary.txt")
     source_path = document.get("_source_path")
     if source_path and any((destination / name).resolve() == source_path for name in names):
-        raise FlpError("An output file would overwrite the input project")
+        raise FlpError(msg('An output file would overwrite the input project'))
     existing = [name for name in names if (destination / name).exists()]
     if existing and not force:
-        raise FlpError(f"Output already exists: {', '.join(existing)}. Use --force to replace generated files.")
+        raise FlpError(msg('Output already exists: {p0}. Use --force to replace generated files.', p0=', '.join(existing)))
     # Serialise before writing any output, so NaN / invalid JSON cannot leave
     # apparently successful but incomplete machine-readable results.
     public = {key: value for key, value in document.items() if not key.startswith("_")}
@@ -105,14 +109,16 @@ def export(document: dict, destination: Path, force: bool = False) -> None:
     (destination / "summary.txt").write_text(summary_text(document), encoding="utf-8")
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="FL Studio structure extraction and isolated keysound preparation")
-    parser.add_argument("--version", action="version", version=__version__)
+def _parse_args(argv):
+    parser = argparse.ArgumentParser(description=tr('FL Studio structure extraction and isolated keysound preparation'))
+    parser.add_argument("--version", action="version", version=__version__, help=tr("Show program version and exit"))
     sub = parser.add_subparsers(dest="command", required=True)
-    convert_cmd = sub.add_parser("convert", help="FLP -> adaptive keysounds -> BMS in one command")
+    gui_cmd = sub.add_parser("gui", help=tr('Open the PyQt6 desktop interface'))
+    gui_cmd.add_argument("source", nargs="?", type=Path, help=tr('Optional project to prefill'))
+    convert_cmd = sub.add_parser("convert", help=tr('FLP -> adaptive keysounds -> BMS in one command'))
     convert_cmd.add_argument("source", type=Path)
-    convert_cmd.add_argument("--out", type=Path, help="New output directory; default output/<project>-bms (auto-numbered if needed)")
-    convert_cmd.add_argument("--fl-exe", type=Path, help="Override automatic FL Studio discovery")
+    convert_cmd.add_argument("--out", type=Path, help=tr('New output directory; default output/<project>-bms (auto-numbered if needed)'))
+    convert_cmd.add_argument("--fl-exe", type=Path, help=tr('Override automatic FL Studio discovery'))
     convert_cmd.add_argument("--initial-tail", type=float, default=1.0)
     convert_cmd.add_argument("--max-tail", type=float, default=30.0)
     convert_cmd.add_argument("--max-attempts", type=int, default=5)
@@ -128,40 +134,40 @@ def main(argv: list[str] | None = None) -> int:
     convert_cmd.add_argument("--lead-in-bars", type=int, default=1)
     convert_cmd.add_argument("--play-channels")
     convert_cmd.add_argument("--encoding", choices=("utf-8", "cp932"), default="utf-8")
-    extract = sub.add_parser("extract", help="Extract FLP notes and playlist geometry to JSON/CSV")
+    extract = sub.add_parser("extract", help=tr('Extract FLP notes and playlist geometry to JSON/CSV'))
     extract.add_argument("source", type=Path)
-    extract.add_argument("--out", type=Path, help="Output directory (default: output/<source stem>)")
-    extract.add_argument("--force", action="store_true", help="Replace generated output files")
-    prepare_cmd = sub.add_parser("prepare", help="Create an isolated-note FLP copy and a cutting manifest")
+    extract.add_argument("--out", type=Path, help=tr('Output directory (default: output/<source stem>)'))
+    extract.add_argument("--force", action="store_true", help=tr('Replace generated output files'))
+    prepare_cmd = sub.add_parser("prepare", help=tr('Create an isolated-note FLP copy and a cutting manifest'))
     prepare_cmd.add_argument("source", type=Path)
-    prepare_cmd.add_argument("--out", type=Path, required=True, help="New bank directory (must not exist)")
-    prepare_cmd.add_argument("--tail", type=float, default=3.0, help="Release capture seconds after each note (default 3)")
-    prepare_cmd.add_argument("--gap", type=float, default=0.5, help="Additional quiet guard seconds (default 0.5)")
-    prepare_cmd.add_argument("--channels", help="Comma-separated Channel Rack IDs; omit for all placed notes")
-    prepare_cmd.add_argument("--arrangement", type=int, help="Arrangement ID (default first)")
-    prepare_cmd.add_argument("--no-dedupe", action="store_true", help="Render every placement separately")
-    prepare_cmd.add_argument("--fl-exe", type=Path, help="FL executable, for resource preflight (otherwise detect installations)")
-    prepare_cmd.add_argument("--resource-dir", type=Path, action="append", default=[], help="Additional sample/FLEX pack directory; repeatable")
-    prepare_cmd.add_argument("--midi-only", help="Comma-separated IDs forced to MIDI-only fallback")
-    render_cmd = sub.add_parser("render", help="Render a prepared bank with FL's CLI (no UI automation)")
+    prepare_cmd.add_argument("--out", type=Path, required=True, help=tr('New bank directory (must not exist)'))
+    prepare_cmd.add_argument("--tail", type=float, default=3.0, help=tr('Release capture seconds after each note (default 3)'))
+    prepare_cmd.add_argument("--gap", type=float, default=0.5, help=tr('Additional quiet guard seconds (default 0.5)'))
+    prepare_cmd.add_argument("--channels", help=tr('Comma-separated Channel Rack IDs; omit for all placed notes'))
+    prepare_cmd.add_argument("--arrangement", type=int, help=tr('Arrangement ID (default first)'))
+    prepare_cmd.add_argument("--no-dedupe", action="store_true", help=tr('Render every placement separately'))
+    prepare_cmd.add_argument("--fl-exe", type=Path, help=tr('FL executable, for resource preflight (otherwise detect installations)'))
+    prepare_cmd.add_argument("--resource-dir", type=Path, action="append", default=[], help=tr('Additional sample/FLEX pack directory; repeatable'))
+    prepare_cmd.add_argument("--midi-only", help=tr('Comma-separated IDs forced to MIDI-only fallback'))
+    render_cmd = sub.add_parser("render", help=tr("Render a prepared bank with FL's CLI (no UI automation)"))
     render_cmd.add_argument("manifest", type=Path)
     render_cmd.add_argument("--fl-exe", type=Path, required=True)
     render_cmd.add_argument("--timeout", type=float, default=600)
-    slice_cmd = sub.add_parser("slice", help="Validate and split a bank WAV into independent keysounds")
+    slice_cmd = sub.add_parser("slice", help=tr('Validate and split a bank WAV into independent keysounds'))
     slice_cmd.add_argument("manifest", type=Path)
-    slice_cmd.add_argument("--wav", type=Path, help="Manual export WAV (default manifest's bank WAV)")
-    slice_cmd.add_argument("--out", type=Path, help="New keysound directory (default <bank>/keysounds)")
+    slice_cmd.add_argument("--wav", type=Path, help=tr("Manual export WAV (default manifest's bank WAV)"))
+    slice_cmd.add_argument("--out", type=Path, help=tr('New keysound directory (default <bank>/keysounds)'))
     slice_cmd.add_argument("--threshold-db", type=float, default=-60)
     slice_cmd.add_argument("--tail-pad-ms", type=float, default=20)
     slice_cmd.add_argument("--fade-ms", type=float, default=3)
     slice_cmd.add_argument("--subtype", choices=("PCM_16", "PCM_24", "FLOAT"), default="PCM_24")
-    slice_cmd.add_argument("--offset-ms", type=float, default=0, help="Explicit render alignment correction")
-    cut_cmd = sub.add_parser("cut", help="Adaptive render/cut: measure release tails and retry only failing keys")
+    slice_cmd.add_argument("--offset-ms", type=float, default=0, help=tr('Explicit render alignment correction'))
+    cut_cmd = sub.add_parser("cut", help=tr('Adaptive render/cut: measure release tails and retry only failing keys'))
     cut_cmd.add_argument("source", type=Path)
     cut_cmd.add_argument("--out", type=Path, required=True)
     cut_cmd.add_argument("--fl-exe", type=Path, required=True)
-    cut_cmd.add_argument("--initial-tail", type=float, default=1.0, help="Initial probe coverage, not final WAV duration")
-    cut_cmd.add_argument("--max-tail", type=float, default=30.0, help="Per-key retry ceiling; reaching it reports failure")
+    cut_cmd.add_argument("--initial-tail", type=float, default=1.0, help=tr('Initial probe coverage, not final WAV duration'))
+    cut_cmd.add_argument("--max-tail", type=float, default=30.0, help=tr('Per-key retry ceiling; reaching it reports failure'))
     cut_cmd.add_argument("--max-attempts", type=int, default=5)
     cut_cmd.add_argument("--threshold-db", type=float, default=-60)
     cut_cmd.add_argument("--timeout", type=float, default=600)
@@ -169,24 +175,32 @@ def main(argv: list[str] | None = None) -> int:
     cut_cmd.add_argument("--midi-only")
     cut_cmd.add_argument("--resource-dir", type=Path, action="append", default=[])
     cut_cmd.add_argument("--no-dedupe", action="store_true")
-    cut_cmd.add_argument("--resume", type=Path, help="Reuse a completed, non-looping render bank manifest for the first measurement")
-    bms_cmd = sub.add_parser("bms", help="Export a validated keysound package as a playable 7-key BME test chart")
+    cut_cmd.add_argument("--resume", type=Path, help=tr('Reuse a completed, non-looping render bank manifest for the first measurement'))
+    bms_cmd = sub.add_parser("bms", help=tr('Export a validated keysound package as a playable 7-key BME test chart'))
     bms_cmd.add_argument("keysounds", type=Path)
     bms_cmd.add_argument("--out", type=Path, required=True)
     bms_cmd.add_argument("--title")
     bms_cmd.add_argument("--artist", default="Unknown")
     bms_cmd.add_argument("--lead-in-bars", type=int, default=1)
-    bms_cmd.add_argument("--play-channels", help="Comma-separated FL channel IDs to play; others become BGM")
+    bms_cmd.add_argument("--play-channels", help=tr('Comma-separated FL channel IDs to play; others become BGM'))
     bms_cmd.add_argument("--encoding", choices=("utf-8", "cp932"), default="utf-8")
-    args = parser.parse_args(argv)
+    for target in (parser, *sub.choices.values()):
+        target.add_argument("--lang", choices=list(LANGUAGES), help=tr("Display language: zh-TW, en, ja or ko"))
+    return parser.parse_args(argv)
+
+
+def _run(args):
     try:
+        if args.command == "gui":
+            from .gui import main as gui_main
+            return gui_main((["--lang", args.explicit_language] if args.explicit_language else []) + ([str(args.source)] if args.source else []))
         if args.command == "convert":
             from .pipeline import convert
             try:
                 selected = [{int(v) for v in raw.split(",")} if raw else None
                             for raw in (args.channels, args.midi_only, args.play_channels)]
             except ValueError as exc:
-                raise FlpError("Channel selections must be comma-separated integer IDs") from exc
+                raise FlpError(msg('Channel selections must be comma-separated integer IDs')) from exc
             report = convert(args.source, args.out, fl_exe=args.fl_exe,
                              initial_tail=args.initial_tail, max_tail=args.max_tail, max_attempts=args.max_attempts,
                              threshold_db=args.threshold_db, timeout=args.timeout,
@@ -196,26 +210,25 @@ def main(argv: list[str] | None = None) -> int:
                              lead_in_bars=args.lead_in_bars, encoding=args.encoding,
                              progress=lambda message: print(message, file=sys.stderr if message.startswith("WARNING:") else sys.stdout, flush=True))
             output = Path(report["output_directory"])
-            print(f"Result: {report['status']}")
+            print(msg('Result: {p0}', p0=report['status']))
             if report["chart"]:
-                print(f"Chart: {output / report['chart']}")
+                print(msg('Chart: {p0}', p0=output / report['chart']))
             if report["midi"]:
-                print(f"MIDI: {output / report['midi']}")
-            print(f"Report: {output / 'conversion.json'}")
+                print(msg('MIDI: {p0}', p0=output / report['midi']))
+            print(msg('Report: {p0}', p0=output / 'conversion.json'))
             return 0
         if args.command == "bms":
             from .bms import export_bms
             try:
                 selected = {int(v) for v in args.play_channels.split(",")} if args.play_channels else None
             except ValueError as exc:
-                raise FlpError("--play-channels must be comma-separated integer IDs") from exc
+                raise FlpError(msg('--play-channels must be comma-separated integer IDs')) from exc
             report = export_bms(args.keysounds, args.out, title=args.title, artist=args.artist,
                                 lead_in_bars=args.lead_in_bars, play_channels=selected, encoding=args.encoding)
             for warning in report["warnings"]:
-                print(f"WARNING: {warning}", file=sys.stderr)
-            print(f"Exported {report['playable_notes']} playable notes + {report['bgm_events']} BGM events; "
-                  f"{report['midi_only_notes']} notes kept as MIDI only.")
-            print(f"Chart: {(args.out / report['chart']).resolve()}")
+                print(msg('WARNING: {p0}', p0=warning), file=sys.stderr)
+            print(msg('Exported {p0} playable notes + {p1} BGM events; {p2} notes kept as MIDI only.', p0=report['playable_notes'], p1=report['bgm_events'], p2=report['midi_only_notes']))
+            print(msg('Chart: {p0}', p0=(args.out / report['chart']).resolve()))
             return 0
         if args.command == "cut":
             from .adaptive import cut
@@ -223,12 +236,12 @@ def main(argv: list[str] | None = None) -> int:
                 channels = {int(v) for v in args.channels.split(",")} if args.channels else None
                 midi_only = {int(v) for v in args.midi_only.split(",")} if args.midi_only else None
             except ValueError as exc:
-                raise FlpError("Channel selections must be comma-separated integer IDs") from exc
+                raise FlpError(msg('Channel selections must be comma-separated integer IDs')) from exc
             cut(args.source, args.out, args.fl_exe, initial_tail=args.initial_tail, max_tail=args.max_tail,
                 max_attempts=args.max_attempts, threshold_db=args.threshold_db, timeout=args.timeout,
                 resume=args.resume, channels=channels, midi_only=midi_only, resource_dirs=tuple(args.resource_dir),
-                deduplicate=not args.no_dedupe, progress=lambda message: print(message, flush=True))
-            print(f"Output: {args.out.resolve()}")
+                deduplicate=not args.no_dedupe, progress=lambda message: print(message, file=sys.stderr if message.startswith("WARNING:") else sys.stdout, flush=True))
+            print(msg('Output: {p0}', p0=args.out.resolve()))
             return 0
         if args.command == "prepare":
             from .keysounds import prepare
@@ -236,7 +249,7 @@ def main(argv: list[str] | None = None) -> int:
                 selected = {int(v) for v in args.channels.split(",")} if args.channels is not None else None
                 midi_only = {int(v) for v in args.midi_only.split(",")} if args.midi_only is not None else None
             except ValueError as exc:
-                raise FlpError("--channels and --midi-only must be comma-separated integer IDs") from exc
+                raise FlpError(msg('--channels and --midi-only must be comma-separated integer IDs')) from exc
             result = prepare(args.source, args.out, tail_seconds=args.tail, gap_seconds=args.gap,
                              channels=selected, arrangement_id=args.arrangement, deduplicate=not args.no_dedupe,
                              fl_exe=args.fl_exe, resource_dirs=tuple(args.resource_dir), midi_only=midi_only)
@@ -244,19 +257,19 @@ def main(argv: list[str] | None = None) -> int:
             for warning in resource_warnings(result["resources"]):
                 print(warning, file=sys.stderr)
             for warning in result["midi_warnings"]:
-                print(f"WARNING: MIDI export: {warning}", file=sys.stderr)
-            print(f"Prepared {len(result['keys'])} keys for {len(result['timeline'])} placed notes.")
-            print(f"MIDI-only fallback: {len(result['fallback']['notes'])} notes; full selection: song.mid")
-            print(f"Manifest: {(args.out / 'manifest.json').resolve()}")
+                print(msg('WARNING: MIDI export: {p0}', p0=warning), file=sys.stderr)
+            print(msg('Prepared {p0} keys for {p1} placed notes.', p0=len(result['keys']), p1=len(result['timeline'])))
+            print(msg('MIDI-only fallback: {p0} notes; full selection: song.mid', p0=len(result['fallback']['notes'])))
+            print(msg('Manifest: {p0}', p0=(args.out / 'manifest.json').resolve()))
             return 0
         if args.command == "render":
             from .audio import render
-            print("Rendering with FL Studio command line; no UI automation.", flush=True)
+            print(msg('Rendering with FL Studio command line; no UI automation.'), flush=True)
             result = render(args.manifest, args.fl_exe, timeout=args.timeout)
             if result["status"] == "midi_only":
-                print("WARNING: All selected notes are MIDI-only; rendering skipped. See fallback.mid.", file=sys.stderr)
+                print(msg('WARNING: All selected notes are MIDI-only; rendering skipped. See fallback.mid.'), file=sys.stderr)
                 return 0
-            print(f"Rendered {result['frames']} frames at {result['samplerate']} Hz in {result['elapsed_seconds']:.1f}s.")
+            print(msg('Rendered {p0} frames at {p1} Hz in {p2:.1f}s.', p0=result['frames'], p1=result['samplerate'], p2=result['elapsed_seconds']))
             return 0
         if args.command == "slice":
             from .audio import slice_bank
@@ -264,27 +277,40 @@ def main(argv: list[str] | None = None) -> int:
                                 threshold_db=args.threshold_db, tail_pad_ms=args.tail_pad_ms,
                                 fade_ms=args.fade_ms, subtype=args.subtype, offset_ms=args.offset_ms)
             if result["status"] == "midi_only":
-                print("WARNING: All selected notes are MIDI-only; audio cutting skipped. See fallback.mid.", file=sys.stderr)
+                print(msg('WARNING: All selected notes are MIDI-only; audio cutting skipped. See fallback.mid.'), file=sys.stderr)
                 return 0
-            print(f"Created {len(result['keys'])} keysounds; all audio checks passed.")
-            print(f"Output: {(args.out or args.manifest.resolve().parent / 'keysounds').resolve()}")
+            print(msg('Created {p0} keysounds; all audio checks passed.', p0=len(result['keys'])))
+            print(msg('Output: {p0}', p0=(args.out or args.manifest.resolve().parent / 'keysounds').resolve()))
             return 0
         document = extract_file(args.source)
         document["_source_path"] = args.source.resolve()
         destination = args.out or Path("output") / args.source.stem
         export(document, destination, args.force)
     except (OSError, FlpError) as exc:
-        print(f"Error: {exc}", file=sys.stderr)
+        print(msg('Error: {p0}', p0=exc), file=sys.stderr)
         return 1
     summary = document["summary"]
-    print(f"FL {document['project']['saved_version']} | PPQ {document['project']['ppq']}")
-    print(f"{summary['channels']} channels, {summary['patterns']} patterns, "
-          f"{summary['pattern_notes']} pattern notes, {summary['playlist_clips']} clips, "
-          f"{summary['timeline_notes']} timeline notes")
+    print(msg('FL {p0} | PPQ {p1}', p0=document['project']['saved_version'], p1=document['project']['ppq']))
+    print(msg('{p0} channels, {p1} patterns, {p2} pattern notes, {p3} clips, {p4} timeline notes', p0=summary['channels'], p1=summary['patterns'], p2=summary['pattern_notes'], p3=summary['playlist_clips'], p4=summary['timeline_notes']))
     skipped = sum(c["expansion_status"] == "unsupported" for a in document["arrangements"] for c in a["clips"])
-    print(f"Structural extraction only; {skipped} unsupported clips. See summary.txt for limitations.")
-    print(f"Output: {destination.resolve()}")
+    print(msg('Structural extraction only; {p0} unsupported clips. See summary.txt for limitations.', p0=skipped))
+    print(msg('Output: {p0}', p0=destination.resolve()))
     return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    configure_console()
+    try:
+        language, cleaned, explicit = split_language_args(list(sys.argv[1:] if argv is None else argv))
+    except ValueError as exc:
+        with language_context(resolve_language()):
+            print(msg("Error: {p0}", p0=exc), file=sys.stderr)
+        return 2
+    with language_context(language):
+        with argparse_translations():
+            args = _parse_args(cleaned)
+        args.explicit_language = explicit
+        return _run(args)
 
 
 if __name__ == "__main__":

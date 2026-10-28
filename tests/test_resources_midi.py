@@ -98,7 +98,7 @@ class FallbackTests(BankFixture):
         self.source.write_bytes(flex_fixture())
         out, err = io.StringIO(), io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-            status = main(["prepare", str(self.source), "--out", str(self.destination),
+            status = main(["--lang", "en", "prepare", str(self.source), "--out", str(self.destination),
                            "--fl-exe", str(self.root / "FL/FL64.exe")])
         self.assertEqual(status, 0)
         self.assertIn("WARNING", err.getvalue())

@@ -1,6 +1,8 @@
 """Render, measure, and retry individual keys until their tails are isolated."""
 from __future__ import annotations
 
+from .i18n import msg
+
 import math
 import json
 from pathlib import Path
@@ -30,11 +32,11 @@ def _cut_impl(source: Path, destination: Path, fl_exe: Path | None, *, initial_t
         timeout: float = 600, resume: Path | None = None, progress=print, **prepare_options) -> dict:
     source, destination = source.resolve(), destination.resolve()
     if destination.exists():
-        raise FlpError(f"Choose a new adaptive output directory: {destination}")
+        raise FlpError(msg('Choose a new adaptive output directory: {p0}', p0=destination))
     if not math.isfinite(initial_tail) or not math.isfinite(max_tail) or max_tail < initial_tail or initial_tail < 0.1 or max_attempts < 1:
-        raise FlpError("Invalid adaptive limits: max-tail >= initial-tail >= 0.1, max-attempts >= 1")
+        raise FlpError(msg('Invalid adaptive limits: max-tail >= initial-tail >= 0.1, max-attempts >= 1'))
     if not math.isfinite(threshold_db) or not -120 <= threshold_db <= -20:
-        raise FlpError("Silence threshold must be between -120 and -20 dBFS")
+        raise FlpError(msg('Silence threshold must be between -120 and -20 dBFS'))
     destination.mkdir(parents=True)
     status = {"status": "running", "attempts": [], "completed_keys": 0}
     write_json(destination / "result.json", status)
@@ -48,12 +50,12 @@ def _cut_impl(source: Path, destination: Path, fl_exe: Path | None, *, initial_t
             manifest_path = resume.resolve()
             manifest = load_manifest(manifest_path)
             if manifest["source"]["sha256"] != sha256_file(source):
-                raise FlpError("Resume bank belongs to a different source file")
+                raise FlpError(msg('Resume bank belongs to a different source file'))
             if manifest["bank"]:
                 parsed_bank = extract_file(manifest_path.parent / manifest["bank"]["project"])
                 bank_pattern = next(p for p in parsed_bank["patterns"] if p["id"] == manifest["bank"]["pattern_id"])
                 if bank_pattern["looped"]:
-                    raise FlpError("Cannot resume an obsolete looping bank; prepare a new bank")
+                    raise FlpError(msg('Cannot resume an obsolete looping bank; prepare a new bank'))
             attempt_dir.mkdir()
             prepare_options.update(channels=set(manifest["selected_channels"]), arrangement_id=manifest["arrangement_id"],
                                    deduplicate=manifest["deduplication"] != "per_placement",
@@ -77,14 +79,14 @@ def _cut_impl(source: Path, destination: Path, fl_exe: Path | None, *, initial_t
                 return status
         for key in manifest["keys"]:
             if key["note_record_hex"][8:] != key_reference[key["id"]]["note_record_hex"][8:]:
-                raise FlpError("Key identity changed between attempts; resources or source changed")
-        progress(f"Attempt {attempt}: {len(manifest['keys'])} keys; {len(accepted)} already validated.")
+                raise FlpError(msg('Key identity changed between attempts; resources or source changed'))
+        progress(msg('Attempt {p0}: {p1} keys; {p2} already validated.', p0=attempt, p1=len(manifest['keys']), p2=len(accepted)))
         if not (attempt == 1 and resume is not None):
             render(manifest_path, fl_exe, timeout=timeout)
         report = slice_bank(manifest_path, destination=attempt_dir / "validated", threshold_db=threshold_db, allow_partial=True)
         current_format = (report["samplerate"], report["channels"], report["output_subtype"])
         if output_format is not None and current_format != output_format:
-            raise FlpError("FL export audio format changed between attempts; cannot combine these renders")
+            raise FlpError(msg('FL export audio format changed between attempts; cannot combine these renders'))
         output_format = current_format
         for key in report["keys"]:
             accepted[key["key_id"]] = {**key, "source_file": str(attempt_dir / "validated" / key["file"])}
@@ -105,13 +107,13 @@ def _cut_impl(source: Path, destination: Path, fl_exe: Path | None, *, initial_t
                        "notes": first_manifest["timeline"], "midi_only_notes": first_manifest["fallback"]["notes"]})
             status.update(status="complete", midi_only_notes=len(first_manifest["fallback"]["notes"]))
             write_json(destination / "result.json", status)
-            progress(f"Complete: {len(accepted)} isolated keys; {status['midi_only_notes']} MIDI-only notes.")
+            progress(msg('Complete: {p0} isolated keys; {p1} MIDI-only notes.', p0=len(accepted), p1=status['midi_only_notes']))
             return status
         retryable = {"tail_not_finished", "audio_in_guard_gap", "late_audio_after_tail"}
         if any(f["reason"] not in retryable for f in report["failures"]):
             status["status"] = "audio_error"
             write_json(destination / "result.json", status)
-            raise FlpError("Non-tail audio failure; see result.json. MIDI is retained; no complete keysound pack published.")
+            raise FlpError(msg('Non-tail audio failure; see result.json. MIDI is retained; no complete keysound pack published.'))
         pending = set(key_reference) - set(accepted)
         checks = {c["key_id"]: c for c in report["checks"]}
         needs_longer = {f["key_id"] for f in report["failures"] if f["reason"] != "audio_in_guard_gap"}
@@ -121,13 +123,13 @@ def _cut_impl(source: Path, destination: Path, fl_exe: Path | None, *, initial_t
             if key_id in needs_longer and tails[key_id] <= current:
                 status["status"] = "tail_limit"
                 write_json(destination / "result.json", status)
-                raise FlpError(f"Key {key_id} still sounds at the configured max-tail limit; MIDI retained.")
+                raise FlpError(msg('Key {p0} still sounds at the configured max-tail limit; MIDI retained.', p0=key_id))
         attempt_status["next_tail_seconds"] = {key: tails[key] for key in sorted(pending)}
         write_json(destination / "result.json", status)
-        progress(f"Retrying {len(pending)} keys with measured tail windows; keeping {len(accepted)} validated keys.")
+        progress(msg('Retrying {p0} keys with measured tail windows; keeping {p1} validated keys.', p0=len(pending), p1=len(accepted)))
     status["status"] = "attempt_limit"
     write_json(destination / "result.json", status)
-    raise FlpError("Adaptive attempt limit reached; see result.json. MIDI and validated intermediate keys are retained.")
+    raise FlpError(msg('Adaptive attempt limit reached; see result.json. MIDI and validated intermediate keys are retained.'))
 
 
 def cut(source: Path, destination: Path, fl_exe: Path | None, **options) -> dict:

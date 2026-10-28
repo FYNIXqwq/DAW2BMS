@@ -93,7 +93,7 @@ class UniversalPluginFallbackTests(BankFixture):
         self.source.write_bytes(plugin_fixture("Generic Missing Plugin"))
         err = io.StringIO()
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
-            code = main(["prepare", str(self.source), "--out", str(self.destination), "--fl-exe", str(self.root / "FL/FL64.exe")])
+            code = main(["--lang", "en", "prepare", str(self.source), "--out", str(self.destination), "--fl-exe", str(self.root / "FL/FL64.exe")])
         self.assertEqual(code, 0)
         self.assertIn("WARNING", err.getvalue())
         self.assertIn("Generic Missing Plugin", err.getvalue())

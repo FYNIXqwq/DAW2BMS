@@ -1,6 +1,8 @@
 """Isolated-note FLP banks and a reproducible mapping back to song events."""
 from __future__ import annotations
 
+from .i18n import msg, tr
+
 from fractions import Fraction
 import hashlib
 import json
@@ -53,7 +55,7 @@ def replace_vst_path(state: bytes, path: str) -> bytes:
         kind, size = struct.unpack_from("<IQ", state, position)
         position += 12
         if size > len(state) - position:
-            raise FlpError("Invalid VST wrapper record while relocating its binary path")
+            raise FlpError(msg('Invalid VST wrapper record while relocating its binary path'))
         payload = path.encode("utf-8") if kind == 55 else state[position:position + size]
         result.extend(struct.pack("<IQ", kind, len(payload)))
         result.extend(payload)
@@ -162,13 +164,13 @@ def build_bank(source: Path, source_bytes: bytes, manifest: dict) -> bytes:
             elif sample and "%" not in sample and not Path(sample).is_absolute():
                 resolved = (source.parent / sample).resolve()
                 if not resolved.is_file():
-                    raise FlpError(f"Missing relative sample for channel {current_channel}: {sample}")
+                    raise FlpError(msg('Missing relative sample for channel {p0}: {p1}', p0=current_channel, p1=sample))
                 payload = (str(resolved) + "\0").encode("utf-16-le")
         elif e.id == 213 and scope == "channel" and resources.get(current_channel, {}).get("resolved_vst"):
             payload = replace_vst_path(payload, resources[current_channel]["resolved_vst"])
         output.extend(encode_event(e.id, payload))
     if not wrote_notes or not wrote_playlist:
-        raise FlpError("Cannot locate the note/playlist blocks required to build the render bank")
+        raise FlpError(msg('Cannot locate the note/playlist blocks required to build the render bank'))
     header = bytearray(source_bytes[:18])
     if manifest["bank"]["add_anchor_channel"]:
         struct.pack_into("<H", header, 10, struct.unpack_from("<H", header, 10)[0] + 1)
@@ -182,48 +184,48 @@ def prepare(source: Path, destination: Path, *, tail_seconds: float = 3.0, gap_s
             midi_only_reason: str | None = None) -> dict:
     source, destination = source.resolve(), destination.resolve()
     if destination.exists():
-        raise FlpError(f"Bank destination already exists; choose a new directory: {destination}")
+        raise FlpError(msg('Bank destination already exists; choose a new directory: {p0}', p0=destination))
     if not math.isfinite(tail_seconds) or tail_seconds < 0.1 or not math.isfinite(gap_seconds) or gap_seconds < 0.1:
-        raise FlpError("Tail and gap must be finite and at least 0.1 seconds")
+        raise FlpError(msg('Tail and gap must be finite and at least 0.1 seconds'))
     document = extract_file(source)
     source_bytes = source.read_bytes()
     if hashlib.sha256(source_bytes).hexdigest() != document["source"]["sha256"]:
-        raise FlpError("Source changed during extraction; retry with a stable file")
+        raise FlpError(msg('Source changed during extraction; retry with a stable file'))
     project = document["project"]
     bpm, ppq = project["stored_tempo_bpm"], project["ppq"]
     if bpm is None or not 1 <= bpm <= 999:
-        raise FlpError("A valid stored tempo is required")
+        raise FlpError(msg('A valid stored tempo is required'))
     if project["swing_raw"] or any(w["code"] == "AUTOMATION_NOT_EVALUATED" for w in document["warnings"]):
-        raise FlpError("Swing/automation requires contextual rendering and is not supported by isolated-note banks yet")
+        raise FlpError(msg('Swing/automation requires contextual rendering and is not supported by isolated-note banks yet'))
     if project["time_signature"] != {"numerator": 4, "denominator": 4}:
-        raise FlpError("The initial render-bank implementation requires a fixed 4/4 project")
+        raise FlpError(msg('The initial render-bank implementation requires a fixed 4/4 project'))
     arrangements = document["arrangements"]
     if not arrangements:
-        raise FlpError("No Playlist arrangement to sample")
+        raise FlpError(msg('No Playlist arrangement to sample'))
     arrangement = next((a for a in arrangements if a["id"] == arrangement_id), None) if arrangement_id is not None else arrangements[0]
     if arrangement is None:
-        raise FlpError(f"Unknown arrangement {arrangement_id}")
+        raise FlpError(msg('Unknown arrangement {p0}', p0=arrangement_id))
     for a in arrangements:
         if a["markers"]:
-            raise FlpError("Arrangement markers require explicit render-range handling; not yet supported")
+            raise FlpError(msg('Arrangement markers require explicit render-range handling; not yet supported'))
     patterns = {p["id"]: p for p in document["patterns"]}
     known_channels = {c["id"] for c in document["channels"]}
     if channels is not None and (not channels or not channels <= known_channels):
-        raise FlpError("--channels must name existing Channel Rack IDs")
+        raise FlpError(msg('--channels must name existing Channel Rack IDs'))
     if midi_only is not None and not midi_only <= known_channels:
-        raise FlpError("--midi-only must name existing Channel Rack IDs")
+        raise FlpError(msg('--midi-only must name existing Channel Rack IDs'))
     for p in patterns.values():
         for marker in p["markers"]:
             if marker["position_ticks"] or marker["kind"] != "signature" or (marker["numerator"], marker["denominator"]) != (4, 4):
-                raise FlpError("Changing pattern time signatures/markers is not supported in the render bank")
+                raise FlpError(msg('Changing pattern time signatures/markers is not supported in the render bank'))
     for clip in arrangement["clips"]:
         if clip["kind"] != "pattern" or clip["expansion_status"] != "single_pass":
-            raise FlpError("The selected arrangement must contain supported, single-pass Pattern clips only")
+            raise FlpError(msg('The selected arrangement must contain supported, single-pass Pattern clips only'))
         if clip["flags_raw"] & ~0x8000 != 0x40:
-            raise FlpError("A playlist clip has unverified flags/mute state; refusing to guess what should sound")
+            raise FlpError(msg('A playlist clip has unverified flags/mute state; refusing to guess what should sound'))
     timeline = [n for n in arrangement["timeline_notes"] if channels is None or n["channel_id"] in channels]
     if not timeline:
-        raise FlpError("No placed notes match the selection")
+        raise FlpError(msg('No placed notes match the selection'))
     resources = check_resources(document, source, source_bytes, fl_exe=fl_exe,
                                 resource_dirs=resource_dirs, midi_only=midi_only, midi_only_reason=midi_only_reason)
     missing_ids = {r["channel_id"] for r in resources if r["status"] == "midi_only"}
@@ -237,19 +239,19 @@ def prepare(source: Path, destination: Path, *, tail_seconds: float = 3.0, gap_s
     cursor = ppq * 4  # One full bar of silence for plugin/PDC diagnostics.
     for placement in render_timeline:
         if placement["overlaps_left_edge"] or placement["overlaps_right_edge"]:
-            raise FlpError("A cropped sustained note requires contextual rendering; isolated-note duration would be ambiguous")
+            raise FlpError(msg('A cropped sustained note requires contextual rendering; isolated-note duration would be ambiguous'))
         if placement["channel_enabled"] is False or placement["track_enabled"] is False:
-            raise FlpError("Disabled channels/tracks must be resolved explicitly before sampling this selection")
+            raise FlpError(msg('Disabled channels/tracks must be resolved explicitly before sampling this selection'))
         note = patterns[placement["pattern_id"]]["notes"][placement["note_index"]]
         if note["slide"] or note["flags_raw"] not in (0, 0x4000):
-            raise FlpError("Slide/unknown note flags require contextual rendering")
+            raise FlpError(msg('Slide/unknown note flags require contextual rendering'))
         raw = source_bytes[note["source_byte_offset"]:note["source_byte_offset"] + 24]
         signature = raw[4:] if deduplicate else (placement["clip_index"], placement["note_index"])
         if signature not in seen:
             key_id = f"k{len(keys) + 1:04d}"
             key_tail = (tail_overrides or {}).get(key_id, tail_seconds)
             if not math.isfinite(key_tail) or key_tail < 0.1:
-                raise FlpError("Per-key tail windows must be finite and at least 0.1 seconds")
+                raise FlpError(msg('Per-key tail windows must be finite and at least 0.1 seconds'))
             key_tail_ticks = seconds_to_ticks(key_tail, ppq, bpm)
             key = {"id": key_id, "file": key_id + ".wav", "onset_ticks": cursor,
                    "cut_end_ticks": cursor + note["length_ticks"] + key_tail_ticks,
@@ -268,7 +270,7 @@ def prepare(source: Path, destination: Path, *, tail_seconds: float = 3.0, gap_s
         mapped.append({**placement, "key_id": key["id"], "key_file": key["file"]})
     if key_ids is not None:
         if not key_ids or not key_ids <= {k["id"] for k in keys}:
-            raise FlpError("Adaptive retry requested unknown key IDs; resources or source may have changed")
+            raise FlpError(msg('Adaptive retry requested unknown key IDs; resources or source may have changed'))
         keys = [k for k in keys if k["id"] in key_ids]
         mapped = [n for n in mapped if n["key_id"] in key_ids]
         cursor = ppq * 4
@@ -279,10 +281,10 @@ def prepare(source: Path, destination: Path, *, tail_seconds: float = 3.0, gap_s
         rendered_channels = {k["channel_id"] for k in keys}
     total_ticks = math.ceil(cursor / (ppq * 4)) * ppq * 4
     if total_ticks > 0x7fffffff:
-        raise FlpError("Render bank exceeds the supported timeline length")
+        raise FlpError(msg('Render bank exceeds the supported timeline length'))
     first_pattern = next((p for p in patterns.values() if p["notes"] and p["length_ticks_declared"] is not None), None)
     if first_pattern is None:
-        raise FlpError("No reusable Pattern note block and length metadata found")
+        raise FlpError(msg('No reusable Pattern note block and length metadata found'))
     manifest = {
         "schema_version": 1, "bank_revision": 2, "kind": "daw2bms-isolated-note-bank",
         "source": document["source"], "arrangement_id": arrangement["id"],
@@ -323,26 +325,24 @@ def prepare(source: Path, destination: Path, *, tail_seconds: float = 3.0, gap_s
         write_json(destination / "fallback_notes.json", {"source": document["source"], "notes": fallback_notes,
                    "resources": [r for r in resources if r["channel_id"] in fallback_ids]})
     write_json(destination / "manifest.json", manifest)
-    (destination / "render_instructions.txt").write_text(
-        "DAW2BMS 独立键音采样工程\n\n"
-        f"键音：{len(keys)}，映射到原曲的音符记录：{len(mapped)}，仅 MIDI：{len(fallback_notes)}\n"
-        f"BPM：{bpm}，PPQ：{ppq}，预计工程时长：{total_ticks / ppq * 60 / bpm:.3f} 秒\n\n"
-        "用 FL Studio 打开 render_bank.flp，按整首 Song 导出为 render_bank.wav。\n"
-        "开启 insert/master effects 和 Trim PDC silence；关闭 normalization，不改变采样工程 BPM。\n"
-        "建议 44.1/48 kHz、24-bit 或 32-bit float WAV。不要裁掉开头的预留静音。\n"
-        "也可通过 python -m daw2bms render manifest.json --fl-exe <FL64.exe路径> 调用命令行渲染。\n"
-        "随后 python -m daw2bms slice manifest.json。\n"
-        "若切分检查发现尾音或间隔仍有声音，增大 prepare 的 --tail 后重新生成/渲染。\n"
-        "缺失资源通道仅保留在 fallback.mid / fallback_notes.json 中，采样副本已禁用对应插件。\n"
-        "song.mid 包含本次选中通道的全部音符；所有通道均缺失时不生成采样 FLP，也不启动渲染。\n"
-        "此模式不保证独立音色相加后与有侧链/压缩/连奏的原混音等价。\n", encoding="utf-8")
+    instructions = [tr("DAW2BMS isolated keysound project"), "",
+        tr("Prepared {p0} keys for {p1} placed notes.", p0=len(keys), p1=len(mapped)),
+        tr("MIDI-only fallback: {p0} notes; full selection: song.mid", p0=len(fallback_notes)),
+        tr("BPM {p0}; PPQ {p1}; estimated duration {p2:.3f} s", p0=bpm, p1=ppq, p2=total_ticks / ppq * 60 / bpm), "",
+        tr("Open render_bank.flp in FL Studio and export the complete Song as render_bank.wav."),
+        tr("Enable insert/master effects and Trim PDC silence. Disable normalization; keep the project tempo and leading silence."),
+        tr("Use 44.1/48 kHz PCM 24-bit or 32-bit float WAV. The render command can also invoke FL Studio."),
+        tr("Run slice after rendering, or use cut to measure tails and retry automatically."),
+        tr("Missing resources are preserved in fallback.mid / fallback_notes.json. If all channels are unavailable, only MIDI/JSON is created."),
+        tr("Isolated keysounds may not reproduce a mix with sidechain, compression or legato exactly.")]
+    (destination / "render_instructions.txt").write_text("\n".join(instructions) + "\n", encoding="utf-8")
     return manifest
 
 
 def local_path(root: Path, relative: str) -> Path:
     candidate = (root / relative).resolve()
     if not candidate.is_relative_to(root.resolve()) or candidate == root.resolve():
-        raise FlpError("Manifest paths must remain within the bank directory")
+        raise FlpError(msg('Manifest paths must remain within the bank directory'))
     return candidate
 
 
@@ -350,26 +350,26 @@ def load_manifest(path: Path) -> dict:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
         if data["kind"] != "daw2bms-isolated-note-bank" or data["schema_version"] != 1:
-            raise FlpError("Unsupported keysound manifest")
+            raise FlpError(msg('Unsupported keysound manifest'))
         timing = data["timing"]
         if not isinstance(timing["ppq"], int) or timing["ppq"] <= 0 or not 1 <= timing["bpm"] <= 999:
-            raise FlpError("Invalid manifest timing")
+            raise FlpError(msg('Invalid manifest timing'))
         if not data["keys"]:
             if data["bank"] is None and data.get("fallback", {}).get("notes"):
                 return data
-            raise FlpError("Empty keysound bank")
+            raise FlpError(msg('Empty keysound bank'))
         end = 0
         names = set()
         for key in data["keys"]:
             if Path(key["file"]).name != key["file"] or key["file"] in names or not key["file"].endswith(".wav"):
-                raise FlpError("Invalid/duplicate keysound filename")
+                raise FlpError(msg('Invalid/duplicate keysound filename'))
             names.add(key["file"])
             if not isinstance(key["onset_ticks"], int) or not isinstance(key["cut_end_ticks"], int) or not end < key["onset_ticks"] < key["cut_end_ticks"]:
-                raise FlpError("Manifest key windows must be positive and ordered with gaps")
+                raise FlpError(msg('Manifest key windows must be positive and ordered with gaps'))
             end = key["cut_end_ticks"]
         bank_path = local_path(path.parent, data["bank"]["project"])
         if sha256_file(bank_path) != data["bank"]["sha256"]:
-            raise FlpError("Render bank FLP changed after preparation; regenerate the manifest")
+            raise FlpError(msg('Render bank FLP changed after preparation; regenerate the manifest'))
     except (KeyError, TypeError, json.JSONDecodeError) as exc:
-        raise FlpError(f"Malformed keysound manifest: {exc}") from exc
+        raise FlpError(msg('Malformed keysound manifest: {p0}', p0=exc)) from exc
     return data

@@ -10,6 +10,75 @@
 需要 Python 3.10 或更新版本。结构提取、MIDI 导出和工程准备只用 Python 标准库，无须 PyFLP。
 音频渲染需要本机 FL Studio 及可用的音源；WAV 校验/切分使用可选 `audio` 依赖。
 
+## PyQt6 桌面界面
+
+安装 GUI 及音频依赖后启动：
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -e ".[gui]"
+.\.venv\Scripts\python.exe -m daw2bms gui
+```
+
+也可以运行安装后生成的 `daw2bms-gui`，或使用 `python -m daw2bms.gui`。
+可选传入工程路径以预填文件框，不会自动开始转换：
+
+```powershell
+.\.venv\Scripts\python.exe -m daw2bms gui "D:\YourProjects\song.flp"
+```
+
+- 支持繁體中文、English、日本語、한국어的单窗口，中性深灰界面，少量蓝色强调。左侧选择或拖入 FLP、选择输出父目录；右侧查看进度、日志和警告。
+- 高级设置提供 FL 路径、额外素材目录、谱面标题/作者、准备小节、尾音探测和重试上限、超时、键音复用。
+- 调用同一个 `convert` 后端，在 QThread 中运行。不会阻塞窗口，也不允许同时重复启动转换。
+- 进度按真实阶段/重试轮次显示，运行期间为不定进度，不编造完成百分比。
+- 缺失插件继续保留 MIDI；完成、部分音源缺失、MIDI-only、失败和停止分别显示，只有实际存在的结果才可打开。
+- “停止后续步骤”是协作式停止：等待本次 FL 渲染/切音操作结束，再停止后续工作并保留已有文件。
+  不强制终止 Qt 线程或其他 FL 进程。运行期间关闭窗口会被拦截；停止完成后可正常退出。
+- `Ctrl+O` 选择工程，`Ctrl+Enter` 开始转换。支持保存日志、打开输出目录、谱面目录、MIDI 和报告。
+- 记住上次工程、输出父目录和 FL 路径；偏好通过 Qt 的用户级设置存储，测试使用隔离的临时设置文件。
+
+GUI 主动停止时 `conversion.json` 记录 `cancelled`。CLI 的原有结果状态不变。
+开发测试使用 Qt offscreen 和应用自身的 widget 渲染，不使用 computer use 或操作其他软件界面：
+
+```powershell
+.\.venv\Scripts\python.exe -m unittest discover -s tests -p test_gui.py -v
+.\.venv\Scripts\python.exe tests\render_gui_preview.py --out output\gui-preview
+```
+
+## 語言與 i18n
+
+命令列與 GUI 均支援 `zh-TW`、`en`、`ja`、`ko`。**未手動設定時，預設跟隨作業系統的介面語言**；
+Windows 透過 `GetUserDefaultUILanguage` 讀取使用者介面語言，不使用日期／數字格式地區來猜測。
+中文語系對應繁體中文，日文與韓文對應各自語言，其他不支援的系統語言回退至英文。
+
+命令列的選擇順序：`--lang` → `DAW2BMS_LANG` 環境變數 → 系統語言。
+`--lang` 可放在子命令前後，命令名稱、選項名稱和資料格式保持不變：
+
+```powershell
+.\.venv\Scripts\python.exe -m daw2bms --lang zh-TW convert "D:\YourProjects\song.flp"
+.\.venv\Scripts\python.exe -m daw2bms convert "D:\YourProjects\song.flp" --lang en
+.\.venv\Scripts\python.exe -m daw2bms --lang ja --help
+.\.venv\Scripts\python.exe -m daw2bms gui --lang ko
+```
+
+GUI 右上方可隨時切換語言，手動選擇會記憶；選擇「跟隨系統」可恢復自動選擇。
+GUI 啟動時的優先順序是：當次 `--lang` → `DAW2BMS_LANG` → 已儲存的選擇 → 系統語言。
+執行中切換只更新文案和記錄的顯示，不會重啟工作、清空輸入或更改音訊參數。
+已產生的檔案不會因切換語言而重寫；背景工作產生的文字說明使用工作開始時的語言。
+
+說明、進度、警告、應用程式錯誤、GUI 文案及文字報告共用 `daw2bms/locales/*.json`。
+背景訊息保留英文原始模板與具型別的參數，顯示時才翻譯，因此進度辨識不依賴譯文。
+JSON 欄位、狀態碼、診斷碼、命令參數、外掛名稱、使用者路徑與譜面中繼資料保持原樣。
+作業系統、第三方套件的原始錯誤與 traceback 仍保留原文，避免錯誤翻譯診斷內容。
+個別翻譯缺漏時使用英文回退；未知語言的 `--lang` 會明確報錯。
+
+語言測試涵蓋目錄完整性、占位符一致性、系統語言／手動覆寫、命令列說明和錯誤、
+四語 MIDI 降級、執行中 GUI 切換，以及中日韓路徑保留：
+
+```powershell
+.\.venv\Scripts\python.exe -m unittest discover -s tests -p test_i18n.py -v
+.\.venv\Scripts\python.exe tests\render_gui_preview.py --out output\gui-ja --lang ja
+```
+
 ## 一条命令生成谱面
 
 首次安装依赖（已有 `.venv` 时无须重建）：

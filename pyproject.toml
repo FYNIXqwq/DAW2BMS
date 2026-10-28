@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "daw2bms"
-version = "0.4.0"
+version = "0.6.0"
 description = "One-command FLP to BMS conversion with adaptive keysounds and MIDI fallback"
 requires-python = ">=3.10"
 dependencies = []
@@ -12,9 +12,16 @@ dependencies = []
 [project.optional-dependencies]
 audio = ["numpy>=1.24,<3", "soundfile>=0.12,<1"]
 test = ["mido>=1.3,<2"]
+gui = ["PyQt6>=6.6,<7", "numpy>=1.24,<3", "soundfile>=0.12,<1"]
 
 [project.scripts]
 daw2bms = "daw2bms.__main__:main"
 
+[project.gui-scripts]
+daw2bms-gui = "daw2bms.gui:main"
+
 [tool.setuptools.packages.find]
 include = ["daw2bms*"]
+
+[tool.setuptools.package-data]
+"daw2bms.locales" = ["*.json"]

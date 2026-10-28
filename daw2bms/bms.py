@@ -1,6 +1,8 @@
 """Export a constant-tempo 7-key BME test chart with exact FL tick placement."""
 from __future__ import annotations
 
+from .i18n import msg, tr
+
 from collections import Counter, defaultdict
 from decimal import Decimal, InvalidOperation
 from fractions import Fraction
@@ -22,13 +24,13 @@ ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
 def object_id(index: int) -> str:
     if not 1 <= index <= 1295:
-        raise FlpError("Classic base-36 BMS supports at most 1295 WAV definitions (01..ZZ)")
+        raise FlpError(msg('Classic base-36 BMS supports at most 1295 WAV definitions (01..ZZ)'))
     return ALPHABET[index // 36] + ALPHABET[index % 36]
 
 
 def header_text(value: str) -> str:
     if not isinstance(value, str) or not value.strip() or any(ord(c) < 32 for c in value):
-        raise FlpError("BMS title/artist must be nonempty single-line text")
+        raise FlpError(msg('BMS title/artist must be nonempty single-line text'))
     return value.strip()
 
 
@@ -38,13 +40,13 @@ def data_lines(events: list[dict], ticks_per_measure: int) -> list[str]:
     for event in events:
         measure, offset = divmod(event["bms_tick"], ticks_per_measure)
         if not 0 <= measure <= 999:
-            raise FlpError("BMS measure number exceeds 000..999; shorten the chart or lead-in")
+            raise FlpError(msg('BMS measure number exceeds 000..999; shorten the chart or lead-in'))
         channel = event["bms_channel"]
         rows = buckets[measure, channel]
         row = next((row for row in rows if offset not in row), None)
         if row is None:
             if channel != "01" and rows:
-                raise FlpError("Two playable notes occupy the same lane and tick")
+                raise FlpError(msg('Two playable notes occupy the same lane and tick'))
             row = {}
             rows.append(row)
         row[offset] = event["wav_id"]
@@ -56,7 +58,7 @@ def data_lines(events: list[dict], ticks_per_measure: int) -> list[str]:
                 step = gcd(step, tick)
             slots = ticks_per_measure // step
             if slots > 65536:
-                raise FlpError("Exact BMS grid exceeds 65536 subdivisions in one measure")
+                raise FlpError(msg('Exact BMS grid exceeds 65536 subdivisions in one measure'))
             cells = ["00"] * slots
             for tick, wav_id in row.items():
                 cells[tick // step] = wav_id
@@ -73,7 +75,7 @@ def read_exported_events(chart: str, ppq: int) -> Counter:
             continue
         measure, channel, cells = match.groups()
         if len(cells) % 2:
-            raise FlpError("Odd-length BMS object data")
+            raise FlpError(msg('Odd-length BMS object data'))
         count = len(cells) // 2
         for index in range(count):
             value = cells[index * 2:index * 2 + 2]
@@ -88,59 +90,59 @@ def export_bms(keysounds_dir: Path, destination: Path, *, title: str | None = No
                play_channels: set[int] | None = None, encoding: str = "utf-8") -> dict:
     root, destination = keysounds_dir.resolve(), destination.resolve()
     if destination.exists():
-        raise FlpError(f"Choose a new BMS package directory: {destination}")
+        raise FlpError(msg('Choose a new BMS package directory: {p0}', p0=destination))
     if not isinstance(lead_in_bars, int) or not 0 <= lead_in_bars <= 998:
-        raise FlpError("Lead-in must be an integer number of bars from 0 to 998")
+        raise FlpError(msg('Lead-in must be an integer number of bars from 0 to 998'))
     if encoding not in ("utf-8", "cp932"):
-        raise FlpError("Supported BMS encodings: utf-8, cp932")
+        raise FlpError(msg('Supported BMS encodings: utf-8, cp932'))
     try:
         timeline = json.loads((root / "timeline.json").read_text(encoding="utf-8"))
         sounds = json.loads((root / "keysounds.json").read_text(encoding="utf-8"))
         if sounds["status"] != "complete":
-            raise FlpError("Only a complete, validated keysound package can be exported")
+            raise FlpError(msg('Only a complete, validated keysound package can be exported'))
         ppq = timeline["timing"]["ppq"]
         bpm = Decimal(str(timeline["timing"]["bpm"]))
         if not isinstance(ppq, int) or ppq <= 0 or not bpm.is_finite() or not 1 <= bpm <= 999:
-            raise FlpError("Invalid constant-tempo timing")
+            raise FlpError(msg('Invalid constant-tempo timing'))
         notes = timeline["notes"]
         missing = timeline.get("midi_only_notes", [])
         if not notes:
-            raise FlpError("No keyed audio notes available; keep the MIDI fallback until audio is available")
+            raise FlpError(msg('No keyed audio notes available; keep the MIDI fallback until audio is available'))
         entries = {key["key_id"]: key for key in sounds["keys"]}
         if len(entries) != len(sounds["keys"]):
-            raise FlpError("Duplicate key IDs in keysounds.json")
+            raise FlpError(msg('Duplicate key IDs in keysounds.json'))
         arrangements = {n["arrangement_id"] for n in notes}
         if len(arrangements) != 1:
-            raise FlpError("Export one arrangement at a time")
+            raise FlpError(msg('Export one arrangement at a time'))
         available_channels = {n["channel_id"] for n in notes}
         if play_channels is not None and not play_channels <= available_channels:
-            raise FlpError("--play-channels must refer to channels with available keyed audio")
+            raise FlpError(msg('--play-channels must refer to channels with available keyed audio'))
         for note in notes:
             tick = note["absolute_onset_ticks"]
             if not isinstance(tick, int) or tick < 0:
-                raise FlpError("Note onsets must be nonnegative integer ticks")
+                raise FlpError(msg('Note onsets must be nonnegative integer ticks'))
             if note.get("overlaps_left_edge") or note.get("overlaps_right_edge") or note.get("slide"):
-                raise FlpError("Cropped/slide playback semantics are not supported by this test-chart exporter")
+                raise FlpError(msg('Cropped/slide playback semantics are not supported by this test-chart exporter'))
             if note.get("channel_enabled") is False or note.get("track_enabled") is False or note.get("clip_muted") is True:
-                raise FlpError("Disabled or muted notes cannot be silently exported as playable audio")
+                raise FlpError(msg('Disabled or muted notes cannot be silently exported as playable audio'))
             if note["key_id"] not in entries or note["key_file"] != entries[note["key_id"]]["file"]:
-                raise FlpError("Timeline key reference does not match the validated audio manifest")
+                raise FlpError(msg('Timeline key reference does not match the validated audio manifest'))
         used_keys = {note["key_id"] for note in notes}
         audio_info = {}
         for key_id in sorted(used_keys):
             entry = entries[key_id]
             source = local_path(root, entry["file"])
             if sha256_file(source) != entry["sha256"]:
-                raise FlpError(f"Keysound changed after validation: {entry['file']}")
+                raise FlpError(msg('Keysound changed after validation: {p0}', p0=entry['file']))
             with wave.open(str(source), "rb") as audio:
                 if audio.getsampwidth() not in (2, 3) or audio.getnchannels() not in (1, 2) or not audio.getnframes():
-                    raise FlpError("Player test export requires nonempty mono/stereo PCM 16/24-bit WAV")
+                    raise FlpError(msg('Player test export requires nonempty mono/stereo PCM 16/24-bit WAV'))
                 if audio.getnframes() != entry["frames"]:
-                    raise FlpError("WAV frame count disagrees with keysound validation report")
+                    raise FlpError(msg('WAV frame count disagrees with keysound validation report'))
                 audio_info[key_id] = {"source": source, "frames": audio.getnframes(),
                                       "rate": audio.getframerate(), "width": audio.getsampwidth()}
     except (KeyError, TypeError, InvalidOperation, json.JSONDecodeError, wave.Error) as exc:
-        raise FlpError(f"Invalid keysound package: {exc}") from exc
+        raise FlpError(msg('Invalid keysound package: {p0}', p0=exc)) from exc
 
     source_name = sounds.get("source", {}).get("file", "DAW2BMS")
     display_title = header_text(title or Path(source_name).stem) + " [AUTO TEST]"
@@ -196,19 +198,19 @@ def export_bms(keysounds_dir: Path, destination: Path, *, title: str | None = No
     lines += ["", "*----------------------- DATA -----------------------*"] + data_lines(mapped, bar_ticks)
     end_measure = max(int(last_sound_end // bar_ticks) + 1, max(e["bms_tick"] // bar_ticks for e in mapped) + 2)
     if end_measure > 999:
-        raise FlpError("Audio tail exceeds BMS measure 999")
+        raise FlpError(msg('Audio tail exceeds BMS measure 999'))
     lines += [f"#{end_measure:03d}01:00", ""]
     chart = "\r\n".join(lines)
     expected = Counter((Fraction(e["bms_tick"]), e["bms_channel"], e["wav_id"]) for e in mapped)
     if read_exported_events(chart, ppq) != expected:
-        raise FlpError("BMS round-trip validation failed: timing or note multiplicity changed")
+        raise FlpError(msg('BMS round-trip validation failed: timing or note multiplicity changed'))
     try:
         encoded = chart.encode(encoding)
     except UnicodeEncodeError as exc:
-        raise FlpError("Metadata is not representable in the requested encoding; use --encoding utf-8") from exc
+        raise FlpError(msg('Metadata is not representable in the requested encoding; use --encoding utf-8')) from exc
     warnings = []
     if missing:
-        warnings.append(f"{len(missing)} MIDI-only notes have no keysounds and are omitted from this chart's audio. See fallback.mid / missing_notes.json.")
+        warnings.append(msg("{p0} MIDI-only notes have no keysounds and are omitted from this chart's audio. See fallback.mid / missing_notes.json.", p0=len(missing)))
     bgm = sum(e["bms_channel"] == "01" for e in mapped)
     report = {"status": "complete", "chart": "test.bme", "format": "7-key BME, ordinary notes, base36 WAV IDs",
               "title": display_title, "source": sounds.get("source"), "bpm": float(bpm), "ppq": ppq,
@@ -230,15 +232,14 @@ def export_bms(keysounds_dir: Path, destination: Path, *, title: str | None = No
         write_midi(destination / "fallback.mid", missing, ppq, float(bpm))
         write_json(destination / "missing_notes.json", {"notes": missing, "timeline_offset_ticks": 0})
     write_json(destination / "export_report.json", report)
-    (destination / "README.txt").write_text(
-        f"{display_title}\n\n"
-        "把本文件夹放入 BMS 歌曲目录并在播放器中刷新曲库，选择 test.bme。\n"
-        "也可以用支持直接打开文件的播放器打开 test.bme。请保留 audio 子目录。\n"
-        f"7 键测试谱，无转盘/长条；{report['playable_notes']} 个可玩音符，{bgm} 个 BGM 事件。\n"
-        f"BPM {bpm}，开头 {lead_in_bars} 小节准备时间。原始音符时间未量化。\n"
-        "建议先使用播放器的 AUTO PLAY 检查节奏和声音，再手动测试键位。\n"
-        "PLAYLEVEL 1 只是占位值，不是难度评级；当前键位算法用于验证导出，并未进行人工制谱。\n"
-        f"缺失音源：{len(missing)} 条音符未发声。它们保留于 fallback.mid / missing_notes.json（原曲位置，不含准备小节）。\n"
-        "mapping.json 可逐音回溯 FL 通道、Pattern、片段和原始 tick。\n"
-        "已校验资源哈希和逐事件时间；实际播放器界面尚未自动测试。\n", encoding="utf-8")
+    instructions = [display_title, "",
+        tr("Add this folder to your BMS player's song library, refresh it, and select test.bme. Keep the audio subfolder."),
+        tr("7-key test chart; no scratch or long notes."),
+        tr("Exported {p0} playable notes + {p1} BGM events; {p2} notes kept as MIDI only.", p0=report['playable_notes'], p1=bgm, p2=len(missing)),
+        tr("BPM {p0}; lead-in bars: {p1}. Original note timing is not quantized.", p0=bpm, p1=lead_in_bars),
+        tr("Use AUTO PLAY to check rhythm and audio before testing the key layout."),
+        tr("PLAYLEVEL 1 is a placeholder, not a difficulty rating. The automatic layout has not been manually charted."),
+        tr("MIDI fallback keeps original song positions without the lead-in. mapping.json traces every event to its source."),
+        tr("Audio hashes and event timing were validated. The player GUI has not been tested automatically.")]
+    (destination / "README.txt").write_text("\n".join(instructions) + "\n", encoding="utf-8")
     return report
