@@ -178,7 +178,8 @@ def build_bank(source: Path, source_bytes: bytes, manifest: dict) -> bytes:
 def prepare(source: Path, destination: Path, *, tail_seconds: float = 3.0, gap_seconds: float = 0.5,
             channels: set[int] | None = None, arrangement_id: int | None = None, deduplicate: bool = True,
             fl_exe: Path | None = None, resource_dirs: tuple[Path, ...] = (), midi_only: set[int] | None = None,
-            tail_overrides: dict[str, float] | None = None, key_ids: set[str] | None = None) -> dict:
+            tail_overrides: dict[str, float] | None = None, key_ids: set[str] | None = None,
+            midi_only_reason: str | None = None) -> dict:
     source, destination = source.resolve(), destination.resolve()
     if destination.exists():
         raise FlpError(f"Bank destination already exists; choose a new directory: {destination}")
@@ -224,7 +225,7 @@ def prepare(source: Path, destination: Path, *, tail_seconds: float = 3.0, gap_s
     if not timeline:
         raise FlpError("No placed notes match the selection")
     resources = check_resources(document, source, source_bytes, fl_exe=fl_exe,
-                                resource_dirs=resource_dirs, midi_only=midi_only)
+                                resource_dirs=resource_dirs, midi_only=midi_only, midi_only_reason=midi_only_reason)
     missing_ids = {r["channel_id"] for r in resources if r["status"] == "midi_only"}
     fallback_notes = [n for n in timeline if n["channel_id"] in missing_ids]
     fallback_ids = {n["channel_id"] for n in fallback_notes}

@@ -184,7 +184,8 @@ def resource_warnings(resources: list[dict]):
 
 
 def check_resources(document: dict, source: Path, source_bytes: bytes, *, fl_exe: Path | None = None,
-                    resource_dirs: tuple[Path, ...] = (), midi_only: set[int] | None = None) -> list[dict]:
+                    resource_dirs: tuple[Path, ...] = (), midi_only: set[int] | None = None,
+                    midi_only_reason: str | None = None) -> list[dict]:
     fl_roots = [fl_exe.resolve().parent] if fl_exe else installed_fl_roots()
     extras = [p.resolve() for p in resource_dirs]
     documents = Path.home() / "Documents"
@@ -214,7 +215,8 @@ def check_resources(document: dict, source: Path, source_bytes: bytes, *, fl_exe
                  "missing": [], "blockers": [], "unverified": [], "resolved_sample": None,
                  "resolved_vst": None, "blocking_effects": effects}
         if channel["id"] in (midi_only or set()):
-            entry["missing"].append({"kind": "user_override", "resource": "Explicit --midi-only selection"})
+            entry["missing"].append({"kind": "user_override" if midi_only_reason is None else "renderer_unavailable",
+                                     "resource": midi_only_reason or "Explicit --midi-only selection"})
         sample = channel["sample_path"]
         if sample:
             candidates = []

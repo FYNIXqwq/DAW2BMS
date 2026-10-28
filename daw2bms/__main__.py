@@ -109,6 +109,25 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="FL Studio structure extraction and isolated keysound preparation")
     parser.add_argument("--version", action="version", version=__version__)
     sub = parser.add_subparsers(dest="command", required=True)
+    convert_cmd = sub.add_parser("convert", help="FLP -> adaptive keysounds -> BMS in one command")
+    convert_cmd.add_argument("source", type=Path)
+    convert_cmd.add_argument("--out", type=Path, help="New output directory; default output/<project>-bms (auto-numbered if needed)")
+    convert_cmd.add_argument("--fl-exe", type=Path, help="Override automatic FL Studio discovery")
+    convert_cmd.add_argument("--initial-tail", type=float, default=1.0)
+    convert_cmd.add_argument("--max-tail", type=float, default=30.0)
+    convert_cmd.add_argument("--max-attempts", type=int, default=5)
+    convert_cmd.add_argument("--threshold-db", type=float, default=-60)
+    convert_cmd.add_argument("--timeout", type=float, default=600)
+    convert_cmd.add_argument("--channels")
+    convert_cmd.add_argument("--midi-only")
+    convert_cmd.add_argument("--resource-dir", type=Path, action="append", default=[])
+    convert_cmd.add_argument("--no-dedupe", action="store_true")
+    convert_cmd.add_argument("--arrangement", type=int)
+    convert_cmd.add_argument("--title")
+    convert_cmd.add_argument("--artist")
+    convert_cmd.add_argument("--lead-in-bars", type=int, default=1)
+    convert_cmd.add_argument("--play-channels")
+    convert_cmd.add_argument("--encoding", choices=("utf-8", "cp932"), default="utf-8")
     extract = sub.add_parser("extract", help="Extract FLP notes and playlist geometry to JSON/CSV")
     extract.add_argument("source", type=Path)
     extract.add_argument("--out", type=Path, help="Output directory (default: output/<source stem>)")
@@ -161,6 +180,29 @@ def main(argv: list[str] | None = None) -> int:
     bms_cmd.add_argument("--encoding", choices=("utf-8", "cp932"), default="utf-8")
     args = parser.parse_args(argv)
     try:
+        if args.command == "convert":
+            from .pipeline import convert
+            try:
+                selected = [{int(v) for v in raw.split(",")} if raw else None
+                            for raw in (args.channels, args.midi_only, args.play_channels)]
+            except ValueError as exc:
+                raise FlpError("Channel selections must be comma-separated integer IDs") from exc
+            report = convert(args.source, args.out, fl_exe=args.fl_exe,
+                             initial_tail=args.initial_tail, max_tail=args.max_tail, max_attempts=args.max_attempts,
+                             threshold_db=args.threshold_db, timeout=args.timeout,
+                             channels=selected[0], midi_only=selected[1], play_channels=selected[2],
+                             resource_dirs=tuple(args.resource_dir), deduplicate=not args.no_dedupe,
+                             arrangement_id=args.arrangement, title=args.title, artist=args.artist,
+                             lead_in_bars=args.lead_in_bars, encoding=args.encoding,
+                             progress=lambda message: print(message, file=sys.stderr if message.startswith("WARNING:") else sys.stdout, flush=True))
+            output = Path(report["output_directory"])
+            print(f"Result: {report['status']}")
+            if report["chart"]:
+                print(f"Chart: {output / report['chart']}")
+            if report["midi"]:
+                print(f"MIDI: {output / report['midi']}")
+            print(f"Report: {output / 'conversion.json'}")
+            return 0
         if args.command == "bms":
             from .bms import export_bms
             try:

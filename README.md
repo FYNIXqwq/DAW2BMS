@@ -10,6 +10,62 @@
 需要 Python 3.10 或更新版本。结构提取、MIDI 导出和工程准备只用 Python 标准库，无须 PyFLP。
 音频渲染需要本机 FL Studio 及可用的音源；WAV 校验/切分使用可选 `audio` 依赖。
 
+## 一条命令生成谱面
+
+首次安装依赖（已有 `.venv` 时无须重建）：
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -e ".[audio]"
+```
+
+之后只需要输入工程路径：
+
+```powershell
+.\.venv\Scripts\python.exe -m daw2bms convert "D:\YourProjects\song.flp"
+```
+
+命令依次读取 FLP、检查资源、生成采样副本、自适应渲染/切音并导出 BMS。
+不依赖特定示例文件，不操作 GUI，也不会修改原工程。
+默认输出到当前目录的 `output/<工程名>-bms/`；目录已存在时自动使用 `-2`、`-3` 等后缀。
+使用 `--out <新目录>` 可以指定输出位置，显式指定的已有目录不会被覆盖。
+
+FL Studio 查找顺序：`--fl-exe` → 环境变量 `DAW2BMS_FL_EXE` → 默认安装目录中目录版本号最高的 FL Studio → PATH 中的 `FL64.exe`。
+自定义安装位置示例：
+
+```powershell
+.\.venv\Scripts\python.exe -m daw2bms convert "D:\YourProjects\song.flp" --fl-exe "D:\Apps\FL Studio\FL64.exe" --out .\output\MySong
+```
+
+输出结构：
+
+```text
+<工程名>-bms/
+  chart/test.bme            播放器测试谱
+  chart/audio/*.wav        谱面使用的独立键音
+  chart/mapping.json       键音与原曲时间轴的映射
+  song.mid                 本次选择的完整 MIDI
+  fallback.mid             缺失音源的 MIDI（有缺失时）
+  fallback_notes.json      缺失音符及资源信息（有缺失时）
+  project.json             FLP 提取结构
+  conversion.json          总流程状态、警告、结果路径
+  work/                    采样工程、渲染和自适应重试记录
+```
+
+将 `chart/` 整个文件夹加入播放器曲库，建议先用 AUTO PLAY 检查。
+缺失插件继续保留 MIDI 并向命令行 stderr 输出 `WARNING`；其余可用音源继续生成谱面。
+如果全部音源不可用、缺失效果器使音频降级，或未找到 FL Studio，结果为 `midi_only`，
+保留 MIDI/JSON 并跳过 BMS，避免生成看似成功但没有声音的空谱。
+渲染超时或校验失败时以错误退出，`conversion.json` 记录失败阶段，已生成的 MIDI 仍会保留。
+
+`conversion.json` 的 `status`：`complete` 表示谱面已导出；`midi_only` 表示只有 MIDI；`error` 表示流程失败。
+前两者命令退出码为 0，失败为 1；`complete` 时仍应检查 `audio_complete` 和警告，缺失通道不会被伪造为键音。
+
+高级参数沿用分步流程：`--channels`、`--midi-only`、`--resource-dir`、`--arrangement`、
+`--initial-tail`、`--max-tail`、`--max-attempts`、`--timeout`、`--no-dedupe`、
+`--title`、`--artist`、`--lead-in-bars`、`--play-channels`、`--encoding`。
+不传标题/作者时使用工程元数据，未设置则使用工程文件名和 `Unknown`。
+
 ## 切音流程
 
 ```powershell
@@ -248,7 +304,7 @@ $env:DAW2BMS_TEST_FLP = "D:\YourProjects\song.flp"
 代码入口：`daw2bms/flp.py`（解析与时间轴）、`daw2bms/keysounds.py`（采样工程）、
 `daw2bms/resources.py`（资源预检）、`daw2bms/midi.py`（MIDI）、
 `daw2bms/audio.py`（渲染/切音）、`daw2bms/adaptive.py`（尾音检测与重试）、
-`daw2bms/bms.py`（测试谱导出）、`daw2bms/__main__.py`（CLI）。
+`daw2bms/bms.py`（测试谱导出）、`daw2bms/pipeline.py`（端到端转换）、`daw2bms/__main__.py`（CLI）。
 格式调查记录见 [docs/flp-format.md](docs/flp-format.md)。
 
 下一步：用真实 FL 26 保存的最小工程交叉验证裁剪、静音、循环和变速；

@@ -25,7 +25,7 @@ def next_tail(check: dict, threshold_db: float, max_tail: float) -> float:
     return min(max_tail, max(current * 1.25, min(proposed, current * 3)))
 
 
-def _cut_impl(source: Path, destination: Path, fl_exe: Path, *, initial_tail: float = 1.0,
+def _cut_impl(source: Path, destination: Path, fl_exe: Path | None, *, initial_tail: float = 1.0,
         max_tail: float = 30.0, max_attempts: int = 5, threshold_db: float = -60,
         timeout: float = 600, resume: Path | None = None, progress=print, **prepare_options) -> dict:
     source, destination = source.resolve(), destination.resolve()
@@ -130,7 +130,7 @@ def _cut_impl(source: Path, destination: Path, fl_exe: Path, *, initial_tail: fl
     raise FlpError("Adaptive attempt limit reached; see result.json. MIDI and validated intermediate keys are retained.")
 
 
-def cut(source: Path, destination: Path, fl_exe: Path, **options) -> dict:
+def cut(source: Path, destination: Path, fl_exe: Path | None, **options) -> dict:
     existed = destination.exists()
     try:
         return _cut_impl(source, destination, fl_exe, **options)

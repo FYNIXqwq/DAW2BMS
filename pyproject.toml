@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "daw2bms"
-version = "0.3.0"
-description = "FLP extraction, adaptive keysound cutting and BMS test-chart export"
+version = "0.4.0"
+description = "One-command FLP to BMS conversion with adaptive keysounds and MIDI fallback"
 requires-python = ">=3.10"
 dependencies = []
 
