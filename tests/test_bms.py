@@ -83,6 +83,17 @@ class BmsTests(unittest.TestCase):
         self.assertEqual(report["bgm_events"], 2)
         self.assertEqual(sorted(t for t, _, _ in read_exported_events((self.out / "test.bme").read_text(), 100)), [1, 5])
 
+    def test_selected_missing_track_does_not_block_bgm_audio(self):
+        timeline,_=self.package(missing=True)
+        for n in timeline['notes']:n['track_id']=1
+        for n in timeline['midi_only_notes']:n['track_id']=2
+        (self.pack/'timeline.json').write_text(json.dumps(timeline))
+        result=export_bms(self.pack,self.out,play_tracks={2})
+        self.assertEqual(result['playable_notes'],0)
+        self.assertEqual(result['bgm_events'],3)
+        self.assertFalse(result['audio_complete'])
+        self.assertTrue((self.out/'fallback.mid').exists())
+
     def test_tampered_audio_rejected_without_output(self):
         self.package()
         with (self.pack / "key.wav").open("ab") as stream:

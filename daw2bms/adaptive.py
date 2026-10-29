@@ -60,6 +60,8 @@ def _cut_impl(source: Path, destination: Path, fl_exe: Path | None, *, initial_t
             prepare_options.update(channels=set(manifest["selected_channels"]), arrangement_id=manifest["arrangement_id"],
                                    deduplicate=manifest["deduplication"] != "per_placement",
                                    midi_only=set(manifest.get("fallback", {}).get("channel_ids", [])))
+            if "selected_tracks" in manifest:
+                prepare_options["tracks"] = set(manifest["selected_tracks"])
         else:
             manifest = prepare(source, attempt_dir, tail_seconds=initial_tail, tail_overrides=tails,
                                key_ids=pending, fl_exe=fl_exe, **prepare_options)

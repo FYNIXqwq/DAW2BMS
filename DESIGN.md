@@ -25,6 +25,12 @@ Console text uses the system fixed-width font. Spacing follows 8/12/16/24; contr
 
 No estimated completion percentages. Stage indicators follow actual pipeline events; the progress bar is busy while running.
 Only one conversion may run. Inputs lock during it. Stop requests are cooperative and explicitly wait for the current render.
+Track reading runs in the background. The left pane contains the read action and role counts; the right pane's third
+tab, Chart tracks, edits Playlist/Arrangement roles without replacing the Log and Warnings tabs. Each row presents
+track ID/name, note count and a role selector; unsupported or muted rows keep a disabled Exclude selector.
+Supported rows default to BGM, with explicit All BGM and All playable actions. The table scrolls at compact widths.
+Track choices survive language and Arrangement switches and same-file refreshes; a changed source hash requires
+reading tracks again. The track editor locks during conversion, and the view switches to the Log tab for progress.
 Closing a busy window is deferred until work stops; never terminate a Qt thread or an unrelated FL process.
 Warnings remain visible independently of success. Logs are selectable, bounded, and saveable.
 Primary actions support keyboard focus and Ctrl+Enter; Ctrl+O opens a project picker.

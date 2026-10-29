@@ -87,7 +87,8 @@ def read_exported_events(chart: str, ppq: int) -> Counter:
 
 def export_bms(keysounds_dir: Path, destination: Path, *, title: str | None = None,
                artist: str = "Unknown", lead_in_bars: int = 1,
-               play_channels: set[int] | None = None, encoding: str = "utf-8") -> dict:
+               play_channels: set[int] | None = None, encoding: str = "utf-8",
+               unrendered_audio_clips: int = 0, play_tracks: set[int] | None = None) -> dict:
     root, destination = keysounds_dir.resolve(), destination.resolve()
     if destination.exists():
         raise FlpError(msg('Choose a new BMS package directory: {p0}', p0=destination))
@@ -115,8 +116,13 @@ def export_bms(keysounds_dir: Path, destination: Path, *, title: str | None = No
         if len(arrangements) != 1:
             raise FlpError(msg('Export one arrangement at a time'))
         available_channels = {n["channel_id"] for n in notes}
-        if play_channels is not None and not play_channels <= available_channels:
+        known_channels = available_channels | {n["channel_id"] for n in missing}
+        if play_channels is not None and not play_channels <= known_channels:
             raise FlpError(msg('--play-channels must refer to channels with available keyed audio'))
+        if play_tracks is not None:
+            known_tracks = {n.get("track_id") for n in notes + missing}
+            if any("track_id" not in n for n in notes) or not play_tracks <= known_tracks:
+                raise FlpError(msg("Track selections must refer to IDs in the selected Arrangement."))
         for note in notes:
             tick = note["absolute_onset_ticks"]
             if not isinstance(tick, int) or tick < 0:
@@ -146,7 +152,7 @@ def export_bms(keysounds_dir: Path, destination: Path, *, title: str | None = No
 
     source_name = sounds.get("source", {}).get("file", "DAW2BMS")
     display_title = header_text(title or Path(source_name).stem) + " [AUTO TEST]"
-    if missing:
+    if missing or unrendered_audio_clips:
         display_title += " [MISSING AUDIO]"
     artist = header_text(artist)
     bar_ticks, shift = ppq * 4, lead_in_bars * ppq * 4
@@ -163,14 +169,16 @@ def export_bms(keysounds_dir: Path, destination: Path, *, title: str | None = No
             current_tick, taken = tick, set()
         candidates = [lane for lane in range(7) if lane not in taken]
         preferred = (channel_order[note["channel_id"]] + note["key"]) % 7
-        playable = candidates and (play_channels is None or note["channel_id"] in play_channels)
+        background_track = play_tracks is not None and note["track_id"] not in play_tracks
+        playable = candidates and not background_track and (play_channels is None or note["channel_id"] in play_channels)
         if playable:
             lane = min(candidates, key=lambda lane: (last_lane[lane], (lane - preferred) % 7))
             taken.add(lane)
             last_lane[lane] = tick
             channel, reason = LANES[lane], "playable"
         else:
-            channel, reason = "01", "background_channel" if play_channels is not None and note["channel_id"] not in play_channels else "chord_overflow"
+            channel, reason = "01", ("background_track" if background_track else "background_channel"
+                if play_channels is not None and note["channel_id"] not in play_channels else "chord_overflow")
         info = audio_info[note["key_id"]]
         onset = Fraction(tick * 60, ppq) / Fraction(bpm)
         duration = Fraction(info["frames"], info["rate"])
@@ -209,16 +217,21 @@ def export_bms(keysounds_dir: Path, destination: Path, *, title: str | None = No
     except UnicodeEncodeError as exc:
         raise FlpError(msg('Metadata is not representable in the requested encoding; use --encoding utf-8')) from exc
     warnings = []
+    if unrendered_audio_clips:
+        warnings.append(msg("{p0} Arrangement audio clips are inventoried only; no audio-to-MIDI inference or rendering is performed", p0=unrendered_audio_clips))
     if missing:
         warnings.append(msg("{p0} MIDI-only notes have no keysounds and are omitted from this chart's audio. See fallback.mid / missing_notes.json.", p0=len(missing)))
     bgm = sum(e["bms_channel"] == "01" for e in mapped)
+    if bgm == len(mapped):
+        warnings.append(msg("This chart contains BGM only; no playable notes were selected or available."))
     report = {"status": "complete", "chart": "test.bme", "format": "7-key BME, ordinary notes, base36 WAV IDs",
               "title": display_title, "source": sounds.get("source"), "bpm": float(bpm), "ppq": ppq,
               "lead_in_bars": lead_in_bars, "lead_in_ticks": shift,
               "playable_notes": len(mapped) - bgm, "bgm_events": bgm, "audio_events": len(mapped),
-              "midi_only_notes": len(missing), "audio_complete": not missing,
+              "midi_only_notes": len(missing), "audio_complete": not missing and not unrendered_audio_clips,
               "unique_keys": len(used_keys), "wav_definitions": len(definitions), "encoding": encoding,
               "warnings": warnings, "roundtrip": "Every audio event matched its original tick plus lead-in exactly",
+              "play_tracks": sorted(play_tracks) if play_tracks is not None else None,
               "input_timeline_sha256": sha256_file(root / "timeline.json"),
               "input_keysounds_sha256": sha256_file(root / "keysounds.json")}
     destination.mkdir(parents=True)

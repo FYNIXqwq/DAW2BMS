@@ -4,14 +4,15 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "daw2bms"
-version = "0.7.0"
-description = "FLP to BMS conversion and read-only Ableton ALS Arrangement MIDI import"
+version = "0.8.0"
+description = "FLP and Ableton ALS to MIDI, isolated keysounds and BMS test charts"
 requires-python = ">=3.10"
 dependencies = []
 
 [project.optional-dependencies]
 audio = ["numpy>=1.24,<3", "soundfile>=0.12,<1"]
 test = ["mido>=1.3,<2"]
+ableton = ["numpy>=1.24,<3", "soundfile>=0.12,<1", "PyAutoGUI>=0.9.54,<1; sys_platform == 'win32'", "pywinauto>=0.6.9,<0.7; sys_platform == 'win32'", "pyperclip>=1.9,<2; sys_platform == 'win32'"]
 gui = ["PyQt6>=6.6,<7", "numpy>=1.24,<3", "soundfile>=0.12,<1"]
 
 [project.scripts]

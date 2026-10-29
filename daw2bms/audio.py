@@ -52,7 +52,7 @@ def render(manifest_path: Path, fl_exe: Path, *, timeout: float = 600) -> dict:
     with (root / "render.log").open("w", encoding="utf-8") as log:
         try:
             result = subprocess.run(command, cwd=fl_exe.parent, stdout=log, stderr=subprocess.STDOUT,
-                                    timeout=timeout, startupinfo=startupinfo, check=False)
+                                    stdin=subprocess.DEVNULL, timeout=timeout, startupinfo=startupinfo, check=False)
         except subprocess.TimeoutExpired as exc:
             receipt.update(status="timeout", elapsed_seconds=time.monotonic() - start)
             write_json(receipt_path, receipt)

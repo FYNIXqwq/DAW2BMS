@@ -255,10 +255,12 @@ class GuiLanguageTests(unittest.TestCase):
             progress(msg("[2/3] Checking resources and creating adaptive keysounds"))
             return {"status": "midi_only", "midi_only_notes": 3}
         source = Path(self.temp.name) / "input.flp"
-        source.write_bytes(b"fake converter")
+        source.write_bytes(fixture())
         window = self.window(language="en", converter=converter)
         window.source_edit.setText(str(source))
         window.output_edit.setText(str(Path(self.temp.name) / "out"))
+        from daw2bms.track_selection import inspect_tracks
+        window.set_track_preview(inspect_tracks(source))
         window.start_conversion()
         self.assertTrue(entered.wait(1))
         worker = window.worker

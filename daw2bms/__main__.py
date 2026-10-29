@@ -119,6 +119,8 @@ def _parse_args(argv):
     convert_cmd.add_argument("source", type=Path)
     convert_cmd.add_argument("--out", type=Path, help=tr('New output directory; default output/<project>-bms (auto-numbered if needed)'))
     convert_cmd.add_argument("--fl-exe", type=Path, help=tr('Override automatic FL Studio discovery'))
+    convert_cmd.add_argument("--ableton-render", action="store_true", help=tr('Render ALS through Ableton on the Windows desktop (PyAutoGUI)'))
+    convert_cmd.add_argument("--ableton-exe", type=Path, help=tr('Override automatic Ableton Live discovery'))
     convert_cmd.add_argument("--initial-tail", type=float, default=1.0)
     convert_cmd.add_argument("--max-tail", type=float, default=30.0)
     convert_cmd.add_argument("--max-attempts", type=int, default=5)
@@ -133,6 +135,10 @@ def _parse_args(argv):
     convert_cmd.add_argument("--artist")
     convert_cmd.add_argument("--lead-in-bars", type=int, default=1)
     convert_cmd.add_argument("--play-channels")
+    convert_cmd.add_argument("--play-tracks", help=tr("Playable Playlist/Arrangement track IDs; other tracks become BGM. Use 'none' for BGM only."))
+    convert_cmd.add_argument("--exclude-tracks", help=tr("Track IDs to omit from audio and MIDI export"))
+    tracks_cmd = sub.add_parser("tracks", help=tr("List Playlist/Arrangement tracks before choosing playable tracks"))
+    tracks_cmd.add_argument("source", type=Path)
     convert_cmd.add_argument("--encoding", choices=("utf-8", "cp932"), default="utf-8")
     extract = sub.add_parser("extract", help=tr('Extract FLP/ALS timelines to JSON/CSV; ALS also exports MIDI'))
     extract.add_argument("source", type=Path)
@@ -183,6 +189,7 @@ def _parse_args(argv):
     bms_cmd.add_argument("--artist", default="Unknown")
     bms_cmd.add_argument("--lead-in-bars", type=int, default=1)
     bms_cmd.add_argument("--play-channels", help=tr('Comma-separated FL channel IDs to play; others become BGM'))
+    bms_cmd.add_argument("--play-tracks", help=tr("Playable Playlist/Arrangement track IDs; other tracks become BGM. Use 'none' for BGM only."))
     bms_cmd.add_argument("--encoding", choices=("utf-8", "cp932"), default="utf-8")
     for target in (parser, *sub.choices.values()):
         target.add_argument("--lang", choices=list(LANGUAGES), help=tr("Display language: zh-TW, en, ja or ko"))
@@ -196,15 +203,18 @@ def _run(args):
             return gui_main((["--lang", args.explicit_language] if args.explicit_language else []) + ([str(args.source)] if args.source else []))
         if args.command == "convert":
             from .pipeline import convert
+            from .track_selection import parse_track_ids
             try:
                 selected = [{int(v) for v in raw.split(",")} if raw else None
                             for raw in (args.channels, args.midi_only, args.play_channels)]
             except ValueError as exc:
                 raise FlpError(msg('Channel selections must be comma-separated integer IDs')) from exc
             report = convert(args.source, args.out, fl_exe=args.fl_exe,
+                             ableton_render=args.ableton_render, ableton_exe=args.ableton_exe,
                              initial_tail=args.initial_tail, max_tail=args.max_tail, max_attempts=args.max_attempts,
                              threshold_db=args.threshold_db, timeout=args.timeout,
                              channels=selected[0], midi_only=selected[1], play_channels=selected[2],
+                             play_tracks=parse_track_ids(args.play_tracks), exclude_tracks=parse_track_ids(args.exclude_tracks),
                              resource_dirs=tuple(args.resource_dir), deduplicate=not args.no_dedupe,
                              arrangement_id=args.arrangement, title=args.title, artist=args.artist,
                              lead_in_bars=args.lead_in_bars, encoding=args.encoding,
@@ -217,14 +227,25 @@ def _run(args):
                 print(msg('MIDI: {p0}', p0=output / report['midi']))
             print(msg('Report: {p0}', p0=output / 'conversion.json'))
             return 0
+        if args.command == "tracks":
+            from .track_selection import inspect_tracks
+            preview = inspect_tracks(args.source)
+            for arrangement in preview["arrangements"]:
+                print(msg("Arrangement {p0}: {p1}", p0=arrangement["id"], p1=arrangement["name"]))
+                for track in arrangement["tracks"]:
+                    print(msg("Track {p0}: {p1} | {p2} notes | {p3}", p0=track["id"], p1=track["name"], p2=track["notes"],
+                              p3=msg("Available") if track["supported"] else msg("Unsupported or muted content")))
+            return 0
         if args.command == "bms":
             from .bms import export_bms
+            from .track_selection import parse_track_ids
             try:
                 selected = {int(v) for v in args.play_channels.split(",")} if args.play_channels else None
             except ValueError as exc:
                 raise FlpError(msg('--play-channels must be comma-separated integer IDs')) from exc
             report = export_bms(args.keysounds, args.out, title=args.title, artist=args.artist,
-                                lead_in_bars=args.lead_in_bars, play_channels=selected, encoding=args.encoding)
+                                lead_in_bars=args.lead_in_bars, play_channels=selected, encoding=args.encoding,
+                                play_tracks=parse_track_ids(args.play_tracks))
             for warning in report["warnings"]:
                 print(msg('WARNING: {p0}', p0=warning), file=sys.stderr)
             print(msg('Exported {p0} playable notes + {p1} BGM events; {p2} notes kept as MIDI only.', p0=report['playable_notes'], p1=report['bgm_events'], p2=report['midi_only_notes']))

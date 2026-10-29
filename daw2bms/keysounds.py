@@ -179,6 +179,7 @@ def build_bank(source: Path, source_bytes: bytes, manifest: dict) -> bytes:
 
 def prepare(source: Path, destination: Path, *, tail_seconds: float = 3.0, gap_seconds: float = 0.5,
             channels: set[int] | None = None, arrangement_id: int | None = None, deduplicate: bool = True,
+            tracks: set[int] | None = None,
             fl_exe: Path | None = None, resource_dirs: tuple[Path, ...] = (), midi_only: set[int] | None = None,
             tail_overrides: dict[str, float] | None = None, key_ids: set[str] | None = None,
             midi_only_reason: str | None = None) -> dict:
@@ -205,6 +206,10 @@ def prepare(source: Path, destination: Path, *, tail_seconds: float = 3.0, gap_s
     arrangement = next((a for a in arrangements if a["id"] == arrangement_id), None) if arrangement_id is not None else arrangements[0]
     if arrangement is None:
         raise FlpError(msg('Unknown arrangement {p0}', p0=arrangement_id))
+    known_tracks = {t["id"] for t in arrangement["tracks"]}
+    if tracks is not None and (not tracks or not tracks <= known_tracks):
+        raise FlpError(msg("Track selections must refer to IDs in the selected Arrangement."))
+    selected_clips = [c for c in arrangement["clips"] if tracks is None or c["track_id"] in tracks]
     for a in arrangements:
         if a["markers"]:
             raise FlpError(msg('Arrangement markers require explicit render-range handling; not yet supported'))
@@ -214,20 +219,24 @@ def prepare(source: Path, destination: Path, *, tail_seconds: float = 3.0, gap_s
         raise FlpError(msg('--channels must name existing Channel Rack IDs'))
     if midi_only is not None and not midi_only <= known_channels:
         raise FlpError(msg('--midi-only must name existing Channel Rack IDs'))
-    for p in patterns.values():
+    used_patterns = {c.get("pattern_id") for c in selected_clips}
+    for p in (p for p in patterns.values() if p["id"] in used_patterns):
         for marker in p["markers"]:
             if marker["position_ticks"] or marker["kind"] != "signature" or (marker["numerator"], marker["denominator"]) != (4, 4):
                 raise FlpError(msg('Changing pattern time signatures/markers is not supported in the render bank'))
-    for clip in arrangement["clips"]:
+    for clip in selected_clips:
         if clip["kind"] != "pattern" or clip["expansion_status"] != "single_pass":
             raise FlpError(msg('The selected arrangement must contain supported, single-pass Pattern clips only'))
         if clip["flags_raw"] & ~0x8000 != 0x40:
             raise FlpError(msg('A playlist clip has unverified flags/mute state; refusing to guess what should sound'))
-    timeline = [n for n in arrangement["timeline_notes"] if channels is None or n["channel_id"] in channels]
+    timeline = [n for n in arrangement["timeline_notes"] if (channels is None or n["channel_id"] in channels)
+                and (tracks is None or n["track_id"] in tracks)]
     if not timeline:
         raise FlpError(msg('No placed notes match the selection'))
     resources = check_resources(document, source, source_bytes, fl_exe=fl_exe,
                                 resource_dirs=resource_dirs, midi_only=midi_only, midi_only_reason=midi_only_reason)
+    selected_source_channels = {n["channel_id"] for n in timeline}
+    resources = [r for r in resources if r["channel_id"] in selected_source_channels]
     missing_ids = {r["channel_id"] for r in resources if r["status"] == "midi_only"}
     fallback_notes = [n for n in timeline if n["channel_id"] in missing_ids]
     fallback_ids = {n["channel_id"] for n in fallback_notes}
@@ -295,6 +304,7 @@ def prepare(source: Path, destination: Path, *, tail_seconds: float = 3.0, gap_s
                  "length_ticks": total_ticks},
         "deduplication": "identical_note_record_except_position" if deduplicate else "per_placement",
         "selected_channels": sorted(channels) if channels is not None else sorted({n["channel_id"] for n in timeline}),
+        "selected_tracks": sorted(tracks) if tracks is not None else sorted(known_tracks),
         "keys": keys, "timeline": mapped, "resources": resources,
         "neutralized_channel_ids": sorted(known_channels - rendered_channels),
         "fallback": {"channel_ids": sorted(fallback_ids), "notes": fallback_notes,

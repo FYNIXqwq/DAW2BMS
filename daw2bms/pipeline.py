@@ -43,23 +43,50 @@ def default_destination(source: Path) -> Path:
 
 
 def convert(source: Path, destination: Path | None = None, *, fl_exe: Path | None = None,
+            ableton_render: bool = False, ableton_exe: Path | None = None,
             initial_tail: float = 1.0, max_tail: float = 30.0, max_attempts: int = 5,
             threshold_db: float = -60, timeout: float = 600,
             channels: set[int] | None = None, midi_only: set[int] | None = None,
             resource_dirs: tuple[Path, ...] = (), deduplicate: bool = True,
             arrangement_id: int | None = None, title: str | None = None, artist: str | None = None,
             lead_in_bars: int = 1, play_channels: set[int] | None = None,
+            play_tracks: set[int] | None = None, exclude_tracks: set[int] | None = None,
+            source_sha256: str | None = None,
             encoding: str = "utf-8", progress=print) -> dict:
     source = source.expanduser().resolve()
+    if source_sha256 is not None and sha256_file(source) != source_sha256:
+        raise FlpError(msg("The project changed. Read tracks again before converting."))
     destination = (destination.resolve() if destination is not None else default_destination(source))
     if destination.exists():
         raise FlpError(msg('Output directory already exists; choose a new --out: {p0}', p0=destination))
     if source.suffix.lower() == ".als":
+        if ableton_render:
+            from .als_render import convert_als_audio
+            return convert_als_audio(source, destination, ableton_exe=ableton_exe, channels=channels,
+                midi_only=midi_only, arrangement_id=arrangement_id, initial_tail=initial_tail,
+                max_tail=max_tail, max_attempts=max_attempts, threshold_db=threshold_db, timeout=timeout,
+                resource_dirs=resource_dirs, deduplicate=deduplicate, title=title, artist=artist,
+                lead_in_bars=lead_in_bars, play_channels=play_channels, play_tracks=play_tracks,
+                exclude_tracks=exclude_tracks, source_sha256=source_sha256, encoding=encoding, progress=progress)
         from .als_export import convert_als
-        return convert_als(source, destination, channels=channels, arrangement_id=arrangement_id, progress=progress)
+        return convert_als(source, destination, channels=channels, arrangement_id=arrangement_id,
+                           play_tracks=play_tracks, exclude_tracks=exclude_tracks, source_sha256=source_sha256, progress=progress)
     executable = find_fl_executable(fl_exe)
     progress(msg('[1/3] Reading FLP: {p0}', p0=source))
     document = extract_file(source)
+    if source_sha256 is not None and document['source']['sha256'] != source_sha256:
+        raise FlpError(msg("The project changed. Read tracks again before converting."))
+    from .track_selection import track_policy
+    arrangement = next((a for a in document["arrangements"] if arrangement_id is None or a["id"] == arrangement_id), None)
+    if arrangement is None:
+        raise FlpError(msg('Unknown arrangement {p0}', p0=arrangement_id))
+    known_tracks = {c["track_id"] for c in arrangement["clips"]} | {n["track_id"] for n in arrangement["timeline_notes"]}
+    roles = track_policy(known_tracks, play_tracks, exclude_tracks)
+    included_tracks = known_tracks - set(exclude_tracks or ())
+    if not included_tracks:
+        raise FlpError(msg("Include at least one note track."))
+    placed_tracks = {n["track_id"] for n in arrangement["timeline_notes"] if n["track_id"] in included_tracks
+                     and (channels is None or n["channel_id"] in channels)}
     selected_title = header_text(title if title is not None else document["project"].get("title") or source.stem)
     selected_artist = header_text(artist if artist is not None else document["project"].get("artist") or "Unknown")
     if not isinstance(lead_in_bars, int) or not 0 <= lead_in_bars <= 998:
@@ -71,6 +98,8 @@ def convert(source: Path, destination: Path | None = None, *, fl_exe: Path | Non
               "source": document["source"], "output_directory": str(destination),
               "fl_executable": str(executable) if executable else None,
               "warnings": [], "chart": None, "midi": None, "fallback_midi": None}
+    report["track_roles"] = roles
+    report["arrangement_id"] = arrangement["id"]
     report_path = destination / "conversion.json"
 
     def emit(message):
@@ -102,7 +131,7 @@ def convert(source: Path, destination: Path | None = None, *, fl_exe: Path | Non
         outcome = cut(source, destination / "work", executable, initial_tail=initial_tail, max_tail=max_tail,
                       max_attempts=max_attempts, threshold_db=threshold_db, timeout=timeout,
                       channels=channels, midi_only=overrides or None, resource_dirs=resource_dirs,
-                      deduplicate=deduplicate, arrangement_id=arrangement_id,
+                      deduplicate=deduplicate, arrangement_id=arrangement_id, tracks=included_tracks,
                       midi_only_reason=fallback_reason, progress=emit)
         report["cut_status"] = outcome["status"]
         report["midi_only_notes"] = outcome.get("midi_only_notes", 0)
@@ -119,7 +148,8 @@ def convert(source: Path, destination: Path | None = None, *, fl_exe: Path | Non
             progress(msg('[3/3] Exporting 7-key BMS test chart'))
             bms_report = export_bms(destination / "work/keysounds", destination / "chart",
                                     title=selected_title, artist=selected_artist, lead_in_bars=lead_in_bars,
-                                    play_channels=play_channels, encoding=encoding)
+                                    play_channels=play_channels, encoding=encoding,
+                                    play_tracks=play_tracks & placed_tracks if play_tracks is not None else None)
             for message in bms_report["warnings"]:
                 emit(msg("WARNING: {p0}", p0=message))
             report.update(status="complete", stage="finished", chart="chart/" + bms_report["chart"],

@@ -122,15 +122,25 @@ def export_document(document: dict, destination: Path, *, selected_tracks=None, 
     return report
 
 
-def convert_als(source, destination, *, channels=None, arrangement_id=None, progress=print):
+def convert_als(source, destination, *, channels=None, arrangement_id=None, play_tracks=None, exclude_tracks=None, source_sha256=None, progress=print):
     if arrangement_id not in (None, 0):
         raise AlsError(msg("ALS contains one Arrangement; use --arrangement 0 or omit it"))
     progress(msg("[1/3] Reading ALS: {p0}", p0=source))
     document = extract_file(source)
+    if source_sha256 is not None and document['source']['sha256'] != source_sha256:
+        raise AlsError(msg("The project changed. Read tracks again before converting."))
+    from .track_selection import track_policy
+    roles = track_policy({c["track_id"] for c in document["clips"] if c["scope"] == "arrangement"}, play_tracks, exclude_tracks)
+    if exclude_tracks:
+        channels = (set(channels) if channels is not None else {t["id"] for t in document["tracks"] if t["kind"] == "MidiTrack"}) - set(exclude_tracks)
+        if not channels:
+            raise AlsError(msg("Include at least one note track."))
     progress(msg("[2/3] Exporting ALS Arrangement MIDI"))
     if sha256_file(source) != document["source"]["sha256"]:
         raise AlsError(msg("Input project changed during conversion; no chart will be published"))
     report = export_document(document, destination, selected_tracks=channels)
+    report["track_roles"] = roles
+    write_json(destination / "conversion.json", report)
     for warning in report["warnings"]:
         progress(warning)
     progress(msg("[3/3] BMS export skipped (MIDI-only result)"))

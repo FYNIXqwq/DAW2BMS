@@ -31,12 +31,16 @@ class GuiTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
         self.source = self.root / "任意 工程.flp"
-        self.source.write_bytes(b"input fixture; fake converter does not parse")
+        from test_flp import fixture
+        self.source.write_bytes(fixture())
         self.settings = QSettings(str(self.root / "prefs.ini"), QSettings.Format.IniFormat)
         self.window = None
 
     def tearDown(self):
         if self.window:
+            if self.window.track_worker:
+                self.window.track_worker.wait(5000)
+                self.app.processEvents()
             if self.window.worker:
                 self.window.worker.requestInterruption()
                 self.window.worker.wait(5000)
@@ -50,6 +54,8 @@ class GuiTests(unittest.TestCase):
         self.window = MainWindow(converter=converter, settings=self.settings, language="zh-TW")
         self.window.source_edit.setText(str(self.source))
         self.window.output_edit.setText(str(self.root / "results"))
+        from daw2bms.track_selection import inspect_tracks
+        self.window.set_track_preview(inspect_tracks(self.source))
         return self.window
 
     def wait_finished(self):
@@ -160,6 +166,31 @@ class GuiTests(unittest.TestCase):
         self.assertFalse(window.is_running())
         self.assertIn("不能短於", window.operation_detail.text())
 
+    def test_als_render_is_explicit_and_enables_audio_options(self):
+        window = self.create_window(self.success)
+        source = self.root / 'chosen.als'
+        from test_als import fixture
+        source.write_bytes(fixture())
+        window.set_source(str(source))
+        from daw2bms.track_selection import inspect_tracks
+        window.set_track_preview(inspect_tracks(source))
+        self.assertFalse(window.ableton_render.isChecked())
+        self.assertFalse(window.initial_tail.isEnabled())
+        window.ableton_render.setChecked(True)
+        self.assertTrue(window.initial_tail.isEnabled())
+        self.assertTrue(window.ableton_row.isEnabled())
+        self.assertFalse(window.fl_row.isEnabled())
+        _, _, options = window.collect_request()
+        self.assertTrue(options['ableton_render'])
+        self.assertIsNone(options['ableton_exe'])
+        window.active_format = '.als'
+        window.set_stage(1)
+        self.assertEqual(window.stage_labels[1].text(), window.t('2  Render and slice'))
+        window.initial_tail.setValue(10)
+        window.max_tail.setValue(2)
+        with self.assertRaises(FlpError):
+            window.collect_request()
+
     def test_failure_preserves_result_access(self):
         def converter(source, destination, progress, **options):
             destination.mkdir(parents=True)
@@ -235,3 +266,49 @@ class GuiTests(unittest.TestCase):
         with patch("daw2bms.gui.QDesktopServices.openUrl", return_value=True) as opened:
             window.open_result("chart", directory=True)
         self.assertEqual(Path(opened.call_args.args[0].toLocalFile()), window.run_directory / "chart")
+
+    def test_track_roles_default_to_bgm_and_survive_language_switch(self):
+        from test_track_selection import playlist_fixture
+        from daw2bms.track_selection import inspect_tracks
+        self.source.write_bytes(playlist_fixture())
+        window=self.create_window(self.success)
+        self.assertEqual(window.track_table.rowCount(),3)
+        self.assertTrue(all(window.track_table.cellWidget(i,2).currentData()=='bgm' for i in range(3)))
+        window.track_table.cellWidget(0,2).setCurrentIndex(0)
+        window.track_table.cellWidget(2,2).setCurrentIndex(2)
+        window.set_language('ja')
+        _,_,options=window.collect_request()
+        self.assertEqual(options['play_tracks'],{1})
+        self.assertEqual(options['exclude_tracks'],{3})
+        window.set_track_preview(inspect_tracks(self.source))
+        self.assertEqual(window.track_table.cellWidget(0,2).currentData(),'play')
+        self.assertEqual(window.track_table.cellWidget(2,2).currentData(),'exclude')
+
+    def test_changed_project_and_all_excluded_cannot_convert(self):
+        window=self.create_window(self.success)
+        combo=window.track_table.cellWidget(0,2);combo.setCurrentIndex(2)
+        with self.assertRaises(FlpError):window.collect_request()
+        combo.setCurrentIndex(1)
+        self.source.write_bytes(b'changed')
+        with self.assertRaises(FlpError):window.collect_request()
+
+    def test_background_track_reading_populates_real_rows(self):
+        from test_track_selection import playlist_fixture
+        self.source.write_bytes(playlist_fixture())
+        window=self.create_window(self.success);window.invalidate_tracks();window.load_tracks()
+        self.assertFalse(window.start_button.isEnabled())
+        deadline=time.monotonic()+5
+        while window.track_worker is not None and time.monotonic()<deadline:QTest.qWait(10)
+        self.assertIsNone(window.track_worker)
+        self.assertEqual(window.track_table.rowCount(),3)
+        self.assertTrue(window.start_button.isEnabled())
+
+    def test_unsupported_track_cannot_be_bulk_enabled(self):
+        from test_track_selection import playlist_fixture
+        self.source.write_bytes(playlist_fixture(unsupported_last=True))
+        window=self.create_window(self.success);window.set_all_track_roles('play')
+        self.assertFalse(window.track_table.cellWidget(2,2).isEnabled())
+        self.assertEqual(window.track_table.cellWidget(2,2).currentData(),'exclude')
+        _,_,options=window.collect_request()
+        self.assertEqual(options['play_tracks'],{1,2})
+        self.assertEqual(options['exclude_tracks'],{3})

@@ -19,7 +19,7 @@ try:
     from PyQt6.QtWidgets import (QApplication, QCheckBox, QDoubleSpinBox, QFileDialog, QFormLayout,
         QFrame, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QPlainTextEdit, QProgressBar,
         QPushButton, QScrollArea, QSizePolicy, QSpinBox, QSplitter, QTabWidget, QToolButton, QComboBox,
-        QVBoxLayout, QWidget)
+        QVBoxLayout, QWidget, QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView)
 except ImportError as exc:
     try:
         requested = split_language_args(sys.argv[1:])[0]
@@ -31,6 +31,8 @@ from . import __version__
 from .flp import FlpError
 from .keysounds import write_json
 from .pipeline import convert
+from .track_selection import inspect_tracks
+from .keysounds import sha256_file
 
 
 STYLE = """
@@ -62,6 +64,8 @@ QToolButton#advancedToggle { border: none; text-align: left; padding-left: 0; ba
 QCheckBox { spacing: 8px; background: transparent; }
 QCheckBox::indicator { width: 16px; height: 16px; }
 QCheckBox:focus { color: #9ab8fa; }
+QTableWidget { background: #171a20; border: 1px solid #3d444f; gridline-color: #3d444f; selection-background-color: #354965; }
+QHeaderView::section { background: #292d35; color: #edf0f5; border: none; padding: 6px; }
 QScrollArea { background: transparent; border: none; }
 QScrollBar:vertical { background: #202329; width: 9px; margin: 0; }
 QScrollBar::handle:vertical { background: #626d7e; min-height: 28px; border-radius: 4px; }
@@ -175,6 +179,23 @@ class ProjectDropArea(QFrame):
             event.acceptProposedAction()
 
 
+class TrackScanWorker(QThread):
+    ready = pyqtSignal(object)
+    failed = pyqtSignal(object)
+
+    def __init__(self, source, parent=None):
+        super().__init__(parent)
+        self.source = source
+
+    def run(self):
+        try:
+            self.ready.emit(inspect_tracks(self.source))
+        except (FlpError, OSError) as exc:
+            self.failed.emit(exc)
+        except Exception as exc:
+            self.failed.emit(msg('Unexpected error: {p0}', p0=exc))
+
+
 class MainWindow(QMainWindow):
     def __init__(self, *, converter=convert, settings=None, language=None):
         super().__init__()
@@ -188,6 +209,9 @@ class MainWindow(QMainWindow):
         self._warning_messages = deque(maxlen=2000)
         self.qt_translator = None
         self.worker = None
+        self.track_worker = None
+        self.track_preview = None
+        self.track_choices = {}
         self.pending_outcome = None
         self.result = None
         self.run_directory = None
@@ -200,7 +224,11 @@ class MainWindow(QMainWindow):
         self.resize(1240, 820)
         self.setStyleSheet(STYLE)
         self._build()
+        self.track_scan_timer = QTimer(self)
+        self.track_scan_timer.setSingleShot(True)
+        self.track_scan_timer.timeout.connect(self.load_tracks)
         self.source_edit.textChanged.connect(self.update_source_type)
+        self.source_edit.textChanged.connect(self.invalidate_tracks)
         self.update_source_type()
         self.set_language(self.language_setting, persist=False)
         self.elapsed_timer = QTimer(self)
@@ -241,6 +269,7 @@ class MainWindow(QMainWindow):
     def _refresh_tabs(self):
         self.tabs.setTabText(0, self.t("Log"))
         self.tabs.setTabText(1, self.t("Warnings · {p0}", p0=self.warning_count))
+        self.tabs.setTabText(2, self.t('Chart tracks'))
 
     def set_language(self, language, persist=True):
         self.language_setting = language or "system"
@@ -267,6 +296,7 @@ class MainWindow(QMainWindow):
         self.language_combo.setCurrentIndex(self.language_combo.findData(self.language_setting))
         self.language_combo.blockSignals(False)
         self._refresh_tabs()
+        self.retranslate_tracks()
         for widget, messages in ((self.log, self._log_messages), (self.warning_log, self._warning_messages)):
             old = widget.verticalScrollBar().value()
             following = old >= widget.verticalScrollBar().maximum() - 4
@@ -295,7 +325,7 @@ class MainWindow(QMainWindow):
         titles = QVBoxLayout()
         titles.setSpacing(4)
         titles.addWidget(self._label('DAW2BMS', 'productTitle'))
-        subtitle = self._label('FL Studio to BMS · Ableton Arrangement to MIDI', role='secondary')
+        subtitle = self._label('FL Studio / Ableton to BMS and MIDI', role='secondary')
         subtitle.setWordWrap(False)
         titles.addWidget(subtitle)
         header.addLayout(titles)
@@ -349,6 +379,48 @@ class MainWindow(QMainWindow):
         form.addWidget(output_label)
         form.addWidget(self._path_row(self.output_edit, self.browse_output))
         form.addWidget(self._label('Create a folder named after the project. Existing output is never overwritten.', role='hint'))
+        form.addSpacing(8)
+        track_header = QHBoxLayout()
+        track_header.addWidget(self._label('Chart tracks', 'sectionTitle'))
+        self.read_tracks_button = self._button('Read tracks')
+        self.read_tracks_button.clicked.connect(self.load_tracks)
+        track_header.addWidget(self.read_tracks_button)
+        form.addLayout(track_header)
+        self.track_hint = self._label('Read tracks, then choose playable notes, BGM or exclude. BGM keeps sound without using keys.', role='hint')
+        form.addWidget(self.track_hint)
+        self.track_panel = QWidget()
+        track_layout = QVBoxLayout(self.track_panel)
+        track_layout.setContentsMargins(8, 8, 8, 8)
+        track_layout.setSpacing(8)
+        self.track_empty = self._label('No tracks loaded', role='hint')
+        track_layout.addWidget(self.track_empty)
+        self.arrangement_combo = QComboBox()
+        self.arrangement_combo.setAccessibleName(self.t('Arrangement'))
+        self.arrangement_combo.currentIndexChanged.connect(self.populate_tracks)
+        track_layout.addWidget(self.arrangement_combo)
+        self.track_table = QTableWidget(0, 3)
+        self.track_table.setShowGrid(False)
+        self.track_table.verticalHeader().hide()
+        self.track_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.track_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.track_table.setMinimumHeight(110)
+        self.track_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.track_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        self.track_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
+        self.track_table.setColumnWidth(2, 150)
+        track_layout.addWidget(self.track_table, 1)
+        bulk = QHBoxLayout()
+        self.all_bgm_button = self._button('All BGM')
+        self.all_play_button = self._button('All playable')
+        self.all_bgm_button.clicked.connect(lambda: self.set_all_track_roles('bgm'))
+        self.all_play_button.clicked.connect(lambda: self.set_all_track_roles('play'))
+        bulk.addWidget(self.all_bgm_button); bulk.addWidget(self.all_play_button)
+        track_layout.addLayout(bulk)
+        self.track_summary = self._label('No tracks loaded', role='hint')
+        form.addWidget(self.track_summary)
+        track_layout.addWidget(self._label('Tracks default to BGM. Unsupported or muted content is excluded.', role='hint'))
+        self.arrangement_combo.hide(); self.track_table.hide()
+        self.all_bgm_button.setEnabled(False); self.all_play_button.setEnabled(False)
         form.addSpacing(10)
         self.advanced_toggle = QToolButton()
         self.advanced_toggle.setObjectName("advancedToggle")
@@ -369,6 +441,14 @@ class MainWindow(QMainWindow):
         self._bind(self.fl_edit, 'setAccessibleName', 'FL Studio executable')
         self.fl_row = self._path_row(self.fl_edit, self.browse_fl)
         self._add_row(settings_layout, 'FL Studio', self.fl_row)
+        self.ableton_render = self._checkbox('Render ALS with Ableton (uses the desktop)')
+        self.ableton_render.setChecked(False)
+        settings_layout.addRow(self.ableton_render)
+        self.ableton_edit = QLineEdit(self.settings.value("ableton_exe", "", type=str))
+        self._bind(self.ableton_edit, 'setPlaceholderText', 'Leave blank to find Ableton Live automatically')
+        self.ableton_row = self._path_row(self.ableton_edit, self.browse_ableton)
+        self._add_row(settings_layout, 'Ableton Live', self.ableton_row)
+        self.ableton_render.toggled.connect(self.update_source_type)
         self.title_edit, self.artist_edit = QLineEdit(), QLineEdit()
         self._bind(self.title_edit, 'setPlaceholderText', 'Use the project title or filename')
         self._bind(self.artist_edit, 'setPlaceholderText', 'Use the project author')
@@ -430,7 +510,9 @@ class MainWindow(QMainWindow):
         monitor.setContentsMargins(22, 20, 22, 20)
         monitor.setSpacing(14)
         heading = QHBoxLayout()
-        heading.addWidget(self._label('Conversion progress', 'sectionTitle'))
+        heading_label = self._label('Conversion progress', 'sectionTitle')
+        heading_label.setWordWrap(False)
+        heading.addWidget(heading_label)
         heading.addStretch()
         self.elapsed_label = self._label('Ready', role='hint')
         heading.addWidget(self.elapsed_label)
@@ -472,6 +554,7 @@ class MainWindow(QMainWindow):
         self._bind(self.warning_log, 'setPlaceholderText', 'No warnings yet. Missing plugins and MIDI fallback information appear here.')
         self.tabs.addTab(self.log, self.t('Log'))
         self.tabs.addTab(self.warning_log, self.t('Warnings · {p0}', p0=0))
+        self.tabs.addTab(self.track_panel, self.t('Chart tracks'))
         monitor.addWidget(self.tabs, 1)
         actions = QHBoxLayout()
         actions.setSpacing(8)
@@ -509,16 +592,151 @@ class MainWindow(QMainWindow):
     def set_source(self, path):
         if not self.is_running():
             self.source_edit.setText(path)
+            if Path(path).is_file():
+                self.track_scan_timer.start(0)
+
+    def invalidate_tracks(self):
+        self.track_preview = None
+        self.track_choices = {}
+        self.arrangement_combo.clear()
+        self.track_table.setRowCount(0)
+        self.arrangement_combo.hide(); self.track_table.hide()
+        self.track_empty.show()
+        self.all_bgm_button.setEnabled(False); self.all_play_button.setEnabled(False)
+        self._bind(self.track_summary, 'setText', 'No tracks loaded')
+
+    def load_tracks(self):
+        if self.is_running() or self.track_worker is not None:
+            return
+        source = Path(self.source_edit.text().strip().strip('"')).expanduser().resolve()
+        if not source.is_file() or source.suffix.lower() not in ('.flp', '.als'):
+            self._bind(self.track_summary, 'setText', 'Choose an existing .flp or .als project file.')
+            property_value(self.track_summary, 'tone', 'error')
+            return
+        self._bind(self.track_summary, 'setText', 'Reading tracks…')
+        property_value(self.track_summary, 'tone', 'normal')
+        self.read_tracks_button.setEnabled(False)
+        self.start_button.setEnabled(False)
+        self.track_worker = TrackScanWorker(source, self)
+        self.track_worker.ready.connect(self.set_track_preview)
+        self.track_worker.failed.connect(lambda exc, source=source: self.track_scan_failed(source, exc))
+        self.track_worker.finished.connect(self.finish_track_scan)
+        self.track_worker.start()
+
+    def finish_track_scan(self):
+        worker, self.track_worker = self.track_worker, None
+        changed = worker is not None and str(worker.source) != str(Path(self.source_edit.text().strip().strip('"')).expanduser().resolve())
+        if worker is not None: worker.deleteLater()
+        self.read_tracks_button.setEnabled(True)
+        self.start_button.setEnabled(not self.is_running())
+        if changed: self.track_scan_timer.start(0)
+
+    def track_scan_failed(self, source, error):
+        if source == Path(self.source_edit.text().strip().strip('"')).expanduser().resolve():
+            self._bind(self.track_summary, 'setText', error)
+            property_value(self.track_summary, 'tone', 'error')
+
+    def set_track_preview(self, preview):
+        source = Path(self.source_edit.text().strip().strip('"')).expanduser().resolve()
+        if str(source) != preview['path']:
+            return
+        self.track_scan_timer.stop()
+        keep = self.track_preview is not None and self.track_preview['sha256'] == preview['sha256']
+        self.track_preview = preview
+        if not keep: self.track_choices = {}
+        previous = self.arrangement_combo.currentData()
+        self.arrangement_combo.blockSignals(True)
+        self.arrangement_combo.clear()
+        for a in preview['arrangements']:
+            self.arrangement_combo.addItem(f"{a['id']} · {a['name']}" if a['name'] else str(a['id']), a['id'])
+        index = self.arrangement_combo.findData(previous)
+        self.arrangement_combo.setCurrentIndex(max(0, index))
+        self.arrangement_combo.blockSignals(False)
+        self.arrangement_combo.setVisible(len(preview['arrangements']) > 1)
+        self.track_table.show()
+        self.track_empty.hide()
+        self.all_bgm_button.setEnabled(True); self.all_play_button.setEnabled(True)
+        self.populate_tracks()
+        if not self.is_running():
+            self.tabs.setCurrentIndex(2)
+            self._bind(self.operation_title, 'setText', 'Choose track roles')
+            self._bind(self.operation_detail, 'setText', 'Select playable tracks, keep accompaniment as BGM, then start conversion.')
+
+    def populate_tracks(self):
+        self.track_table.setRowCount(0)
+        if self.track_preview is None: return
+        arrangement = next((a for a in self.track_preview['arrangements'] if a['id'] == self.arrangement_combo.currentData()), None)
+        if arrangement is None: return
+        choices = self.track_choices.setdefault(arrangement['id'], {})
+        self.track_table.setRowCount(len(arrangement['tracks']))
+        for row, track in enumerate(arrangement['tracks']):
+            ident = track['id']
+            item = QTableWidgetItem(f"{ident} · {track['name']}" if track['name'] else str(ident))
+            item.setData(Qt.ItemDataRole.UserRole, ident)
+            item.setToolTip(item.text())
+            self.track_table.setItem(row, 0, item)
+            self.track_table.setItem(row, 1, QTableWidgetItem(str(track['notes'])))
+            role = choices.setdefault(ident, 'bgm' if track['supported'] else 'exclude')
+            combo = QComboBox()
+            for name in ('play', 'bgm', 'exclude'): combo.addItem('', name)
+            combo.setCurrentIndex(combo.findData(role))
+            combo.setEnabled(track['supported'])
+            combo.setProperty('supported', track['supported'])
+            combo.currentIndexChanged.connect(self.track_role_changed)
+            self.track_table.setCellWidget(row, 2, combo)
+            self.track_table.setRowHeight(row, 40)
+            if not track['supported']:
+                item.setForeground(QColor('#a0abba'))
+        self.retranslate_tracks()
+        self.track_role_changed()
+
+    def retranslate_tracks(self):
+        if not hasattr(self, 'track_table'): return
+        self.track_table.setHorizontalHeaderLabels([self.t('Track'), self.t('Notes'), self.t('Role')])
+        self.track_table.setAccessibleName(self.t('Chart tracks'))
+        self.arrangement_combo.setAccessibleName(self.t('Arrangement'))
+        for row in range(self.track_table.rowCount()):
+            combo = self.track_table.cellWidget(row, 2)
+            if combo is None: continue
+            for index, text in enumerate(('Playable notes', 'BGM', 'Exclude')):
+                combo.setItemText(index, self.t(text))
+            ident = self.track_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+            combo.setAccessibleName(self.t('Role for track {p0}', p0=ident))
+            combo.setToolTip(self.t('Unsupported or muted content') if not combo.property('supported') else self.t('BGM plays automatically without using keys.'))
+
+    def track_role_changed(self):
+        if self.track_preview is None: return
+        choices = self.track_choices.setdefault(self.arrangement_combo.currentData(), {})
+        counts = {'play': 0, 'bgm': 0, 'exclude': 0}
+        for row in range(self.track_table.rowCount()):
+            combo = self.track_table.cellWidget(row, 2)
+            if combo is None: continue
+            ident = self.track_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+            choices[ident] = combo.currentData()
+            counts[combo.currentData()] += 1
+        self._bind(self.track_summary, 'setText', msg('{p0} playable · {p1} BGM · {p2} excluded', p0=counts['play'], p1=counts['bgm'], p2=counts['exclude']))
+        property_value(self.track_summary, 'tone', 'normal')
+
+    def set_all_track_roles(self, role):
+        for row in range(self.track_table.rowCount()):
+            combo = self.track_table.cellWidget(row, 2)
+            if combo.isEnabled(): combo.setCurrentIndex(combo.findData(role))
 
     def update_source_type(self):
         als = Path(self.source_edit.text().strip().strip('"')).suffix.lower() == ".als"
-        for widget in (self.fl_row, self.resource_row, self.title_edit, self.artist_edit, self.lead_in,
+        audio = not als or self.ableton_render.isChecked()
+        self.fl_row.setEnabled(not als)
+        self.ableton_render.setEnabled(als)
+        self.ableton_row.setEnabled(als and audio)
+        for widget in (self.resource_row, self.title_edit, self.artist_edit, self.lead_in,
                        self.initial_tail, self.max_tail, self.attempts, self.threshold, self.timeout, self.dedupe):
-            widget.setEnabled(not als)
+            widget.setEnabled(audio)
         self._bind(self.format_hint, "setText", "ALS exports Arrangement MIDI and JSON only; Live is not required and audio rendering is disabled."
                    if als else "Drop one FLP or ALS file here. The source project stays unchanged.")
+        if als and audio:
+            self._bind(self.format_hint, "setText", "Ableton rendering uses the foreground desktop. Save your Set first. Missing or unsupported devices retain MIDI.")
         if self.active_format is None:
-            self._bind(self.stage_labels[1], "setText", "2  Export MIDI" if als else "2  Render and slice")
+            self._bind(self.stage_labels[1], "setText", "2  Export MIDI" if als and not audio else "2  Render and slice")
 
     def browse_source(self):
         if self.is_running():
@@ -536,6 +754,11 @@ class MainWindow(QMainWindow):
         path, _ = QFileDialog.getOpenFileName(self, self.t('Choose FL Studio executable'), self.fl_edit.text(), self.t('Executables (*.exe)'), options=QFileDialog.Option.DontUseNativeDialog)
         if path:
             self.fl_edit.setText(path)
+
+    def browse_ableton(self):
+        path, _ = QFileDialog.getOpenFileName(self, self.t('Ableton Live'), self.ableton_edit.text(), self.t('Executables (*.exe)'), options=QFileDialog.Option.DontUseNativeDialog)
+        if path:
+            self.ableton_edit.setText(path)
 
     def browse_resource(self):
         path = QFileDialog.getExistingDirectory(self, self.t('Add resource folder'), options=QFileDialog.Option.DontUseNativeDialog)
@@ -561,22 +784,36 @@ class MainWindow(QMainWindow):
         fl_exe = Path(fl_text).expanduser().resolve() if fl_text and not als else None
         if fl_exe and (not fl_exe.is_file() or fl_exe.suffix.lower() != ".exe"):
             raise FlpError(msg('Invalid FL Studio path. Choose an .exe file or leave blank for automatic discovery.'))
-        if not als and self.max_tail.value() < self.initial_tail.value():
+        audio = not als or self.ableton_render.isChecked()
+        if audio and self.max_tail.value() < self.initial_tail.value():
             raise FlpError(msg('The maximum tail probe cannot be shorter than the initial probe.'))
         resources = tuple(Path(line.strip().strip('"')).expanduser().resolve()
-                          for line in self.resources_edit.toPlainText().splitlines() if line.strip()) if not als else ()
+                          for line in self.resources_edit.toPlainText().splitlines() if line.strip()) if audio else ()
         if any(not path.is_dir() for path in resources):
             raise FlpError(msg('A resource folder does not exist. Check Advanced settings.'))
         options = {"fl_exe": fl_exe, "title": self.title_edit.text().strip() or None,
+                   "ableton_render": als and self.ableton_render.isChecked(),
+                   "ableton_exe": Path(self.ableton_edit.text().strip().strip('"')).expanduser().resolve() if als and self.ableton_edit.text().strip() else None,
                    "artist": self.artist_edit.text().strip() or None, "resource_dirs": resources,
                    "initial_tail": self.initial_tail.value(), "max_tail": self.max_tail.value(),
                    "max_attempts": self.attempts.value(), "threshold_db": self.threshold.value(),
                    "timeout": self.timeout.value(), "lead_in_bars": self.lead_in.value(),
                    "deduplicate": self.dedupe.isChecked()}
+        if self.track_preview is not None:
+            if sha256_file(source) != self.track_preview['sha256']:
+                raise FlpError(msg('The project changed. Read tracks again before converting.'))
+            choices = self.track_choices.get(self.arrangement_combo.currentData(), {})
+            if not any(role != 'exclude' for role in choices.values()):
+                raise FlpError(msg('Include at least one note track.'))
+            options.update(arrangement_id=self.arrangement_combo.currentData(),
+                play_tracks={i for i, role in choices.items() if role == 'play'},
+                exclude_tracks={i for i, role in choices.items() if role == 'exclude'}, source_sha256=self.track_preview['sha256'])
+        elif audio:
+            raise FlpError(msg('Read tracks and choose their roles before converting.'))
         return source.resolve(), next_output(source, parent), options
 
     def start_conversion(self):
-        if self.is_running():
+        if self.is_running() or self.track_worker is not None:
             return
         try:
             source, destination, options = self.collect_request()
@@ -588,6 +825,7 @@ class MainWindow(QMainWindow):
         self.settings.setValue("last_source", str(source))
         self.settings.setValue("output_parent", str(destination.parent))
         self.settings.setValue("fl_exe", self.fl_edit.text().strip())
+        self.settings.setValue("ableton_exe", self.ableton_edit.text().strip())
         self.settings.sync()
         self.run_directory, self.result, self.pending_outcome = destination, None, None
         self.active_format = source.suffix.lower()
@@ -607,6 +845,8 @@ class MainWindow(QMainWindow):
         property_value(self.operation_detail, "tone", "normal")
         self.progress_bar.setRange(0, 0)
         self.form_content.setEnabled(False)
+        self.track_panel.setEnabled(False)
+        self.tabs.setCurrentIndex(0)
         self.start_button.setEnabled(False)
         self.stop_button.setEnabled(True)
         self._bind(self.stop_button, 'setText', 'Stop after this step')
@@ -627,7 +867,7 @@ class MainWindow(QMainWindow):
         self.current_stage = current
         for index, widget in enumerate(self.stage_labels):
             self._bind(widget, 'setText', ('1  Read project', '2  Render and slice', '3  Export chart')[index])
-            if index == 1 and self.active_format == ".als":
+            if index == 1 and self.active_format == ".als" and not self.ableton_render.isChecked():
                 self._bind(widget, 'setText', '2  Export MIDI')
             state = "done" if index < current else "active" if index == current else "idle"
             if error and index == current:
@@ -694,6 +934,7 @@ class MainWindow(QMainWindow):
         self.elapsed_timer.stop()
         self.update_elapsed()
         self.form_content.setEnabled(True)
+        self.track_panel.setEnabled(True)
         self.start_button.setEnabled(True)
         self.stop_button.setEnabled(False)
         self._bind(self.stop_button, 'setText', 'Stop after this step')
@@ -766,11 +1007,15 @@ class MainWindow(QMainWindow):
                 self.append_log(self.log, msg('Cannot save log: {p0}', p0=exc))
 
     def closeEvent(self, event):
-        if self.is_running():
+        if self.track_worker is not None:
+            self._bind(self.operation_detail, 'setText', 'Wait for track reading to finish before closing.')
+            event.ignore()
+        elif self.is_running():
             self._bind(self.operation_detail, 'setText', 'A task is running. Stop after this step and wait for the render to finish before closing.')
             property_value(self.operation_detail, "tone", "warning")
             event.ignore()
         else:
+            self.track_scan_timer.stop()
             event.accept()
 
 
