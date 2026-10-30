@@ -10,6 +10,7 @@ import subprocess
 import time
 
 from .flp import FlpError
+from .runtime import external_daw_environment
 from .keysounds import load_manifest, local_path, sha256_file, tick_to_frame, write_json
 
 
@@ -51,8 +52,10 @@ def render(manifest_path: Path, fl_exe: Path, *, timeout: float = 600) -> dict:
     write_json(receipt_path, receipt)
     with (root / "render.log").open("w", encoding="utf-8") as log:
         try:
-            result = subprocess.run(command, cwd=fl_exe.parent, stdout=log, stderr=subprocess.STDOUT,
-                                    stdin=subprocess.DEVNULL, timeout=timeout, startupinfo=startupinfo, check=False)
+            with external_daw_environment() as environment:
+                result = subprocess.run(command, cwd=fl_exe.parent, stdout=log, stderr=subprocess.STDOUT,
+                                        stdin=subprocess.DEVNULL, timeout=timeout, startupinfo=startupinfo,
+                                        env=environment, check=False)
         except subprocess.TimeoutExpired as exc:
             receipt.update(status="timeout", elapsed_seconds=time.monotonic() - start)
             write_json(receipt_path, receipt)

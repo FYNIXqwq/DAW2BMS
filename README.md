@@ -106,17 +106,17 @@ Max for Live 还需要在 Live 控制介面中启用 **AbletonMCP Remote Script*
 
 ## 在 BMSE 中使用
 
-Wails 3 重写版 BMSE 已接入同一个转换引擎。无需安装 PyQt6，BMSE EXE 本身也不内嵌 Python 或 DAW。
+Wails 3 重写版 BMSE 已接入同一个转换引擎。完整发布包附带 Python 运行时与转换依赖，无需另外安装 Python、PyQt6 或配置引擎路径。FL Studio、Ableton Live 和音源仍须在本机安装。
 
-1. 按上文安装引擎依赖。
-2. 在 BMSE Wails 项目根目录配置引擎，例如：
+1. 解压完整的 `BMSE3-Windows-x64.zip`，保留 `BMSE3.exe` 旁的 `daw-engine/` 文件夹。
+2. 源码构建可在 BMSE 目录执行：
 
    ```powershell
-   cd C:\BMSE-3\wails\BMSE
-   .\configure-daw.ps1 -EngineRoot "C:\DAW2BMS"
+   cd C:\DAW2BMS\BMSE
+   .\build.ps1
    ```
 
-   默认使用引擎目录下的 `.venv\Scripts\python.exe`，其他环境可追加 `-Python "D:\Tools\python.exe"`。这里的路径是本机布局示例，应用可配置任意安装位置。
+   构建需要 Go、Node.js 和 Python；脚本准备构建依赖并生成 `bin/BMSE3-Windows-x64.zip`。运行发布包不需要这些开发工具。
 
 3. 启动 `bin/BMSE3.exe`，选择 **文件 → 导入 DAW 工程…**，或拖入 `.flp` / `.als`。
 4. 读取音轨，设置按键 / BGM / 不导出；ALS 要生成音频时勾选 Ableton 渲染。
@@ -124,9 +124,9 @@ Wails 3 重写版 BMSE 已接入同一个转换引擎。无需安装 PyQt6，BMS
 
 BMSE 默认在源工程旁的 `output/` 新建带唯一后缀的输出目录，也可选择其他父目录。MIDI-only 或取消结果不会替换当前谱面；导入窗口可查看日志、警告和输出文件。
 
-引擎路径也可在导入窗口的设置中修改，用户设置优先于 EXE 旁的 `daw-import.json`。保留引擎目录及其 Python 环境，后续导入仍会使用它们。
+导入窗口的「转换引擎设置」默认使用内置引擎；开发时可改为外部 Python。旧版本保存的外部环境设置继续保留，可手动切回内置引擎。只有外部 Python 模式需要保留源代码目录和相应环境。
 
-BMSE 的构建、设置与编辑功能见其 `wails/BMSE/README.md`；若两个项目位于同一个父目录，可直接打开 [BMSE README](../BMSE-3/wails/BMSE/README.md)。
+BMSE 源码位于本仓库的 `BMSE/`，构建、设置与编辑功能见 [BMSE README](BMSE/README.md)。首次构建在该目录执行 `.\build.ps1`，生成 `bin/BMSE3.exe`。
 
 ## 独立桌面界面
 

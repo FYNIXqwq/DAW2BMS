@@ -1,0 +1,24 @@
+version: '3'
+vars:
+  APP_NAME: BMSE3
+  VITE_PORT: '{{.WAILS_VITE_PORT | default 9245}}'
+tasks:
+  build:
+    cmds:
+      - npm --prefix frontend ci
+      - npm --prefix frontend run build
+      - 'go build {{if ne .DEV "true"}}-tags production -ldflags="-s -w -H windowsgui"{{end}} -o bin/BMSE3.exe .'
+  dev:
+    cmds:
+      - wails3 dev -config build/config.yml -port {{.VITE_PORT}}
+  frontend:dev:
+    dir: frontend
+    cmds:
+      - npm run dev -- --port {{.VITE_PORT}}
+  run:
+    cmds:
+      - ./bin/BMSE3.exe
+  test:
+    cmds:
+      - go test ./...
+      - npm --prefix frontend test

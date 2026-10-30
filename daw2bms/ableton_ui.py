@@ -18,6 +18,7 @@ from .als import AlsError
 from .flp import FlpError
 from .i18n import Message, msg
 from .keysounds import sha256_file, write_json
+from .runtime import ableton_helper_command, external_daw_environment
 
 
 def find_ableton(explicit=None):
@@ -60,7 +61,7 @@ class NativeExporter:
         self.executable, self.timeout, self.progress = Path(executable), timeout, progress
 
     def render(self, project, wav, *, bars, bpm):
-        command = [sys.executable, "-m", "daw2bms.ableton_ui", str(project.resolve()), str(wav.resolve()),
+        command = ableton_helper_command() + [str(project.resolve()), str(wav.resolve()),
                    "--exe", str(self.executable), "--bars", str(bars), "--bpm", str(bpm), "--timeout", str(self.timeout)]
         receipt_path = wav.parent / "render_receipt.json"
         if wav.exists() or receipt_path.exists():
@@ -324,7 +325,8 @@ class WindowsExporter:
                 max_clips = [k["id"] for k in manifest["keys"]]
             main = self._main()
             if main is None:
-                subprocess.Popen([str(self.executable)], cwd=str(project.parent))
+                with external_daw_environment() as environment:
+                    subprocess.Popen([str(self.executable)], cwd=str(project.parent), env=environment)
                 main = self._wait(self._main)
             if main:
                 self._activate_main(main)
