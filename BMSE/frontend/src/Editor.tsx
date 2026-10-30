@@ -2808,8 +2808,8 @@ export default function Editor() {
                   原项目：Hayana / UCN-Soft、Drossel Studio、Nekokan_Server。
                 </p>
                 <p>
-                  使用许可沿用项目根目录
-                  LICENSE。此版本的迁移范围与验证记录见工程 README。
+                  本仓库原创代码采用 AGPL-3.0-or-later，见项目 LICENSE 与 NOTICE。
+                  原 BMSE 及第三方许可声明继续保留，发布包中见 BMSE-LICENSE.txt。
                 </p>
               </>
             )}

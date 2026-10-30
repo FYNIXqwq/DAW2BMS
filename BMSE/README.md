@@ -203,6 +203,8 @@ DESIGN.md                  从完成界面提取的设计规范
 
 ## 许可与来源
 
+本仓库的原创 BMSE 重写与 DAW2BMS 整合代码采用 **AGPL-3.0-or-later**，完整条款见上级目录的 [LICENSE](../LICENSE)，范围及第三方说明见 [NOTICE](../NOTICE)。Windows 发布包附带项目 LICENSE、NOTICE 和原有声明 BMSE-LICENSE.txt。
+
 这是经修改/重写的版本。原 BMSE 作者为 Hayana/UCN-Soft、Drossel Studio、Nekokan_Server，原许可完整保留在 `LICENSE`。Windows 图标沿用原 BMSE.ico，构建副本位于 `build/windows/icon.ico`；测试音由 `samples/create-audio.mjs` 确定性合成。界面图标使用 Lucide，第三方组件分别遵守其自身许可。
 
 Wails 3 官方文档：https://v3.wails.io/ 。

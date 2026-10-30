@@ -5,6 +5,7 @@ from PyInstaller.utils.hooks import collect_data_files, collect_submodules, copy
 
 root = Path(SPECPATH).parent.parent
 datas = collect_data_files('daw2bms', includes=['locales/*.json'])
+datas += [(str(root / name), 'licenses/DAW2BMS') for name in ('LICENSE', 'NOTICE')]
 datas.append((str(Path(sys.base_prefix) / 'LICENSE.txt'), 'third-party-licenses/Python'))
 # Retain notices from the redistributed Python packages, including transitive dependencies.
 packages = ['numpy', 'soundfile', 'cffi', 'pycparser', 'PyAutoGUI', 'PyTweening',

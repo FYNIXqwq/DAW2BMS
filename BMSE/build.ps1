@@ -16,11 +16,13 @@ try {
     }
     & go build -trimpath -tags production '-ldflags=-s -w -H windowsgui' -o bin/BMSE3.exe .
     if ($LASTEXITCODE -ne 0) { throw 'Desktop build failed' }
-    Copy-Item -LiteralPath LICENSE -Destination bin/LICENSE -Force
+    Copy-Item -LiteralPath ../LICENSE -Destination bin/LICENSE -Force
+    Copy-Item -LiteralPath ../NOTICE -Destination bin/NOTICE -Force
+    Copy-Item -LiteralPath LICENSE -Destination bin/BMSE-LICENSE.txt -Force
     if (-not $SkipEngine) {
         & "$PSScriptRoot/build-engine.ps1" -Python $Python -SkipInstall:$SkipInstall
         Copy-Item -LiteralPath packaging/README.txt -Destination bin/README.txt -Force
-        Compress-Archive -LiteralPath bin/BMSE3.exe,bin/daw-engine,bin/LICENSE,bin/README.txt -DestinationPath bin/BMSE3-Windows-x64.zip -Force
+        Compress-Archive -LiteralPath bin/BMSE3.exe,bin/daw-engine,bin/LICENSE,bin/NOTICE,bin/BMSE-LICENSE.txt,bin/README.txt -DestinationPath bin/BMSE3-Windows-x64.zip -Force
         Write-Host 'Packaged bin/BMSE3-Windows-x64.zip (includes the DAW conversion runtime)'
     }
     Write-Host 'Built bin/BMSE3.exe'

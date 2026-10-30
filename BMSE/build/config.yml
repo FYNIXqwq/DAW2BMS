@@ -4,7 +4,7 @@ info:
   productName: BMx Sequence Editor
   productIdentifier: org.bmse.editor
   description: Web and Wails 3 rewrite of BMSE
-  copyright: Hayana/UCN-Soft; Drossel Studio; Nekokan_Server. See LICENSE.
+  copyright: DAW2BMS contributors; original BMSE Hayana/UCN-Soft, Drossel Studio, Nekokan_Server. See NOTICE.
   version: 3.0.0
 dev_mode:
   root_path: .

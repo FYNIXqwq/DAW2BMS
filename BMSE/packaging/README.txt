@@ -22,5 +22,9 @@ The import panel supports zh-TW / en / ja / ko and follows the OS UI language
 unless manually selected. Advanced engine settings allow an external Python
 environment; select Built-in engine to return to this distribution's runtime.
 
-BMSE license: LICENSE. Python and bundled dependency notices are retained in
-daw-engine/_internal (package metadata and third-party-licenses).
+Project license: GNU Affero General Public License v3.0 or later
+(SPDX: AGPL-3.0-or-later). See LICENSE and NOTICE.
+Source: https://github.com/FYNIXqwq/DAW2BMS
+Original BMSE and retained third-party notices: BMSE-LICENSE.txt.
+Python and bundled dependency notices are retained in daw-engine/_internal
+(package metadata and third-party-licenses). Their original terms still apply.

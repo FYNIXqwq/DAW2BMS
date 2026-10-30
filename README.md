@@ -287,3 +287,9 @@ CLI 优先顺序为 `--lang` → `DAW2BMS_LANG` → 系统语言。GUI 手动选
 | [独立 GUI](daw2bms/gui.py) | PyQt6 界面 |
 
 使用 `python -m daw2bms --help` 或 `python -m daw2bms convert --help` 查看当前版本的全部选项。
+
+## 许可证
+
+除另行注明的第三方内容外，DAW2BMS 及本仓库对 BMSE 的原创重写与整合代码采用 **GNU Affero General Public License v3.0 or later**（SPDX：`AGPL-3.0-or-later`），可选择第 3 版或任意后续版本。完整条款见 [LICENSE](LICENSE)，版权与许可范围见 [NOTICE](NOTICE)。
+
+原 BMSE 的 zlib 许可及保留的第三方声明完整保存在 [BMSE/LICENSE](BMSE/LICENSE)；第三方代码、素材、字体和依赖继续遵守各自许可。DAW 软件、音源插件及用户工程不属于本项目的授权内容，转换结果也不会仅因使用本工具而自动适用 AGPL。

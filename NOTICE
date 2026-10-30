@@ -1,0 +1,33 @@
+DAW2BMS
+Copyright (C) 2026 DAW2BMS contributors
+SPDX-License-Identifier: AGPL-3.0-or-later
+
+Except for separately identified third-party material, DAW2BMS and this
+repository's original BMSE rewrite and integration code are free software:
+you can redistribute and/or modify them under the terms of the GNU Affero
+General Public License as published by the Free Software Foundation, either
+version 3 of the License, or (at your option) any later version.
+
+This software is distributed in the hope that it will be useful, but WITHOUT
+ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+FOR A PARTICULAR PURPOSE. See LICENSE for the complete license text.
+
+Source repository: https://github.com/FYNIXqwq/DAW2BMS
+
+Third-party notices
+-------------------
+This repository contains a modified/reimplemented version of BMx Sequence
+Editor. It is not the original BMSE distribution. Original BMSE copyright
+and zlib license notices, together with the retained Ini-Parser MIT notice,
+are preserved without modification in BMSE/LICENSE. In the Windows binary
+package, those notices are included as BMSE-LICENSE.txt.
+
+Third-party code, artwork, fonts, libraries and runtimes retain their own
+copyright and license terms. This project-level license does not replace
+their notices. See BMSE/frontend/Inter Font License.txt, component package
+metadata, and the notices retained in the bundled runtime's
+_internal/third-party-licenses directory.
+
+DAW applications, plugins and users' music/project files are not included in
+this project's license grant. Conversion output is not automatically placed
+under AGPL solely because it was produced with this tool.
