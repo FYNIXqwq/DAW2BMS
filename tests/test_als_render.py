@@ -99,6 +99,9 @@ class AlsRenderingTests(unittest.TestCase):
         self.assertEqual(result['keysounds'], 1)
         self.assertTrue(result['audio_complete'])
         mapping = json.loads((self.root/'out/chart/mapping.json').read_text())
+        self.assertEqual(mapping['schema_version'], 2)
+        self.assertEqual(mapping['chart_sha256'], sha256_file(self.root/'out/chart/test.bme'))
+        self.assertIn('Operator', mapping['events'][0]['source_note']['instrument_name'])
         self.assertEqual([e['original_tick'] for e in mapping['events']], [0, 1920])
         self.assertEqual([e['bms_tick'] for e in mapping['events']], [3840, 5760])
 

@@ -285,5 +285,5 @@ func Serialize(d Document) (string, error) {
 	if writeErr != nil {
 		return "", writeErr
 	}
-	return out.String(), nil
+	return appendDawDraft(d, out.String())
 }

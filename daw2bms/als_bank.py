@@ -99,6 +99,9 @@ def prepare_track(root, document, track_id, source, resource_dirs=()):
 
 def make_keys(document, track_id, ppq, *, deduplicate=True):
     clips = {c["index"]: c for c in document["clips"]}
+    track = next(t for t in document["tracks"] if t["id"] == track_id)
+    instrument = " → ".join(d.get("name") or ", ".join(d.get("plugin_names", [])) or d["type"]
+                            for d in track.get("devices", [])) or track["name"]
     keys, by_identity, timeline, fallback = [], {}, [], []
     for n in document["timeline_notes"]:
         if n["track_id"] != track_id or not n["midi_eligible"]:
@@ -121,6 +124,7 @@ def make_keys(document, track_id, ppq, *, deduplicate=True):
                    "clip_index": n["clip_index"]}
             keys.append(key); by_identity[identity] = key
         timeline.append({**n, "arrangement_id": 0, "channel_id": track_id, "channel_name": n["track_name"],
+                         "instrument_name": instrument,
                          "absolute_onset_ticks": int(start), "visible_start_ticks": int(start), "visible_end_ticks": int(end),
                          "length_ticks": int(end-start), "velocity_raw": float(Fraction(n["velocity"]) * 128 / 127),
                          "key_id": key["id"], "key_file": key["file"]})

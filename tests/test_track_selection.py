@@ -75,6 +75,8 @@ class TrackSelectionTests(unittest.TestCase):
         manifest=json.loads((self.root/'out/work/attempt-01/manifest.json').read_text())
         self.assertEqual(len(manifest['keys']),1)  # Shared sample; distinct placement roles.
         self.assertEqual({n['track_id'] for n in manifest['timeline']},{1,2})
+        self.assertTrue(all('instrument_name' in n and 'track_name' in n for n in manifest['timeline']))
+        self.assertEqual(next(n['track_name'] for n in manifest['timeline'] if n['track_id']==2), 'Track 2')
 
     def test_excluded_unsupported_clip_does_not_block_preparation(self):
         self.source.write_bytes(playlist_fixture(unsupported_last=True))

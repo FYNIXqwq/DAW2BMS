@@ -13,17 +13,19 @@ const BGMLane = 1297
 const MaxMaterial = 3843
 
 type Note struct {
-	ID          string  `json:"id"`
-	Measure     int     `json:"measure"`
-	Position    float64 `json:"position"` // fraction of the measure, independent of measure length
-	Numerator   int     `json:"numerator"`
-	Denominator int     `json:"denominator"`
-	Channel     int     `json:"channel"` // normal key channel; BGM uses 1297..1424
-	Kind        string  `json:"kind"`    // normal, invisible, long, mine
-	Value       float64 `json:"value"`   // material number or actual BPM/STOP/SCROLL/SPEED value
+	DawOrigin   *DawOrigin `json:"dawOrigin,omitempty"`
+	ID          string     `json:"id"`
+	Measure     int        `json:"measure"`
+	Position    float64    `json:"position"` // fraction of the measure, independent of measure length
+	Numerator   int        `json:"numerator"`
+	Denominator int        `json:"denominator"`
+	Channel     int        `json:"channel"` // normal key channel; BGM uses 1297..1424
+	Kind        string     `json:"kind"`    // normal, invisible, long, mine
+	Value       float64    `json:"value"`   // material number or actual BPM/STOP/SCROLL/SPEED value
 }
 
 type Document struct {
+	DawDraft    *DawDraft               `json:"dawDraft,omitempty"`
 	EditorMode  string                  `json:"editorMode,omitempty"`
 	Path        string                  `json:"path"`
 	Encoding    string                  `json:"encoding"`

@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 func Read(path, encoding string) (chart.Document, error) {
@@ -38,6 +39,11 @@ func ReadWithLayout(path, encoding string, extended bool) (chart.Document, error
 	d, e = chart.Parse(text)
 	d.Path = path
 	d.Encoding = enc
+	if e == nil && d.DawDraft == nil && !strings.Contains(text, "*BMSE_DAW1 ") {
+		if err := loadDawMapping(&d, data); err != nil {
+			d.Warnings = append(d.Warnings, "DAW_MAPPING_INVALID: "+err.Error())
+		}
+	}
 	return d, e
 }
 

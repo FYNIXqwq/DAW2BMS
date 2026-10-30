@@ -659,6 +659,25 @@ dialog > header button {
 .daw-path input { min-width: 0; width: 100%; }
 .daw-engine > p { margin: 6px 0; }
 .daw-engine-mode > span { width: 120px; text-align: left; }
+.daw-draft { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.daw-draft p { margin: 0; }
+.draft-filters { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.draft-filters label, .draft-actions label { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.draft-filters select { width: 100%; min-width: 0; }
+.draft-selection, .draft-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.draft-selection span { margin-left: auto; }
+.draft-actions { align-items: flex-end; }
+.draft-actions select { min-width: 150px; }
+.draft-table { max-height: 260px; overflow: auto; border: 1px solid var(--line); background: var(--input); }
+.draft-table table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.draft-table th, .draft-table td { padding: 6px; border-bottom: 1px solid var(--line); text-align: left; overflow-wrap: anywhere; }
+.draft-table th { position: sticky; top: 0; background: var(--panel); }
+.draft-table th:first-child { width: 50px; }
+.draft-table th:last-child { width: 88px; }
+.draft-table button { white-space: nowrap; }
+.draft-table input[type=checkbox] { margin: 0; }
+.daw-draft small { display: block; color: var(--muted); overflow-wrap: anywhere; }
+.daw-draft audio { width: 100%; height: 32px; }
 .daw-engine .daw-path { margin-top: 6px; }
 .daw-import summary { cursor: pointer; color: var(--text); }
 .daw-track-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }

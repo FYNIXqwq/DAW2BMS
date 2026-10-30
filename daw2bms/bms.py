@@ -240,7 +240,10 @@ def export_bms(keysounds_dir: Path, destination: Path, *, title: str | None = No
         shutil.copy2(audio_info[definition["key_id"]]["source"], destination / definition["file"])
     (destination / "test.bme").write_bytes(encoded)
     report["chart_sha256"] = sha256_file(destination / "test.bme")
-    write_json(destination / "mapping.json", {"definitions": definitions, "events": mapped})
+    write_json(destination / "mapping.json", {"schema_version": 2,
+        "chart_sha256": report["chart_sha256"], "ppq": ppq, "bpm": str(bpm),
+        "source": sounds.get("source", {}), "arrangement_id": next(iter(arrangements)),
+        "definitions": definitions, "events": mapped})
     if missing:
         write_midi(destination / "fallback.mid", missing, ppq, float(bpm))
         write_json(destination / "missing_notes.json", {"notes": missing, "timeline_offset_ticks": 0})

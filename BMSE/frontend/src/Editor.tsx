@@ -69,6 +69,7 @@ import Preferences from "./Preferences";
 import BGAEditor, { BGAImage } from "./BGAEditor";
 import AssetDialog from "./AssetDialog";
 import DawImportDialog from './DawImportDialog';
+import DawDraftDialog from './DawDraftDialog';
 import BranchesDialog from "./BranchesDialog";
 import Effects from "./Effects";
 import MeasureDialog from "./MeasureDialog";
@@ -1079,6 +1080,7 @@ export default function Editor() {
       { text: "新建", shortcut: "Ctrl+N", action: () => void newFile() },
       { text: "打开…", shortcut: "Ctrl+O", action: () => void open() },
       { text: "导入 DAW 工程…", action: () => {setDawSource('');setModal('daw');}, disabled: !desktop },
+      { text: "DAW 制作底稿…", action: () => setModal('draft') },
       {
         text: "重新读取",
         shortcut: "Ctrl+E",
@@ -2207,6 +2209,7 @@ export default function Editor() {
                   source: "BMS 文本",
                   convert: "转换向导",
                   daw: "导入 DAW 工程",
+                  draft: "DAW 制作底稿",
                   help: "操作帮助",
                   about: "关于 BMSE",
                 } as Record<string, string>
@@ -2225,6 +2228,7 @@ export default function Editor() {
               "assets",
               "branches",
               "daw",
+              "draft",
             ].includes(modal)}
           >
             {error && (
@@ -2239,9 +2243,12 @@ export default function Editor() {
               install(generated);
               if (!recovery) await api.clearRecovery();
               setSettings(await api.settings());
-              setModal('');
+              setModal(generated.dawDraft ? 'draft' : '');
               return true;
             }}/>}
+            {modal === 'draft' && <DawDraftDialog doc={doc} lanes={lanes(player,keys,scratch,bgm,scratch2)} onChange={update}
+              onUndo={undo} onRedo={redo} canUndo={!!history.current.length} canRedo={!!future.current.length}
+              onLocate={ids=>{setSelected(ids);const first=doc.notes.filter(n=>ids.has(n.id)).sort((a,b)=>a.measure-b.measure||a.position-b.position)[0];if(first)jump(first.measure);setModal('');}}/>}
             {modal === "note" && inspected && (
               <>
                 <Field

@@ -18,6 +18,7 @@ func Parse(text string) (Document, error) {
 	if len(text) > 32<<20 {
 		return d, fmt.Errorf("chart exceeds 32 MiB")
 	}
+	text, draftData := splitDawDraft(text)
 	lines := strings.Split(strings.ReplaceAll(strings.ReplaceAll(strings.TrimPrefix(text, "\ufeff"), "\r\n", "\n"), "\r", "\n"), "\n")
 	lnType2 := false
 	segments := []lnSegment{}
@@ -222,6 +223,9 @@ func Parse(text string) (Document, error) {
 		}
 	}
 	RememberSource(&d, text)
+	if e := restoreDawDraft(&d, text, draftData); e != nil {
+		d.Warnings = append(d.Warnings, "DAW_DRAFT_INVALID: "+e.Error())
+	}
 	return d, nil
 }
 

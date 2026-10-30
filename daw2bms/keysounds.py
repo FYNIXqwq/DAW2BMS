@@ -210,6 +210,7 @@ def prepare(source: Path, destination: Path, *, tail_seconds: float = 3.0, gap_s
     if tracks is not None and (not tracks or not tracks <= known_tracks):
         raise FlpError(msg("Track selections must refer to IDs in the selected Arrangement."))
     selected_clips = [c for c in arrangement["clips"] if tracks is None or c["track_id"] in tracks]
+    track_names = {t["id"]: t.get("name") or "" for t in arrangement["tracks"]}
     for a in arrangements:
         if a["markers"]:
             raise FlpError(msg('Arrangement markers require explicit render-range handling; not yet supported'))
@@ -276,7 +277,9 @@ def prepare(source: Path, destination: Path, *, tail_seconds: float = 3.0, gap_s
         reference = {"pattern_id": placement["pattern_id"], "note_index": placement["note_index"]}
         if reference not in key["source_notes"]:
             key["source_notes"].append(reference)
-        mapped.append({**placement, "key_id": key["id"], "key_file": key["file"]})
+        mapped.append({**placement, "track_name": track_names.get(placement["track_id"], ""),
+                       "instrument_name": placement["channel_name"],
+                       "key_id": key["id"], "key_file": key["file"]})
     if key_ids is not None:
         if not key_ids or not key_ids <= {k["id"] for k in keys}:
             raise FlpError(msg('Adaptive retry requested unknown key IDs; resources or source may have changed'))

@@ -1,5 +1,6 @@
 export type Kind = "normal" | "invisible" | "long" | "mine";
 export interface Note {
+  dawOrigin?: DawOrigin;
   id: string;
   measure: number;
   position: number;
@@ -10,6 +11,7 @@ export interface Note {
   value: number;
 }
 export interface Chart {
+  dawDraft?: {version:number;sourceFile:string;sourceHash:string;daw:string;ppq:number;arrangementId:number};
   editorMode?: string;
   path: string;
   encoding: string;
@@ -25,6 +27,10 @@ export interface Chart {
   definitions?: Record<number, Record<number, number>>;
   sourceText?: string;
   sourceHash?: string;
+}
+export interface DawOrigin {
+  trackId:number;trackName:string;channelId:number;instrumentName:string;
+  keyId:string;pitch:number;sourceIndex:number;originalTick:number;
 }
 export interface Issue {
   severity: string;

@@ -46,6 +46,10 @@ class BmsTests(unittest.TestCase):
         self.assertEqual(sorted(t for t, channel, wav in events.elements()), [384, 385, 416, 767, 768])
         self.assertEqual(report["audio_events"], 5)
         self.assertEqual(report["lead_in_ticks"], 384)
+        mapping = json.loads((self.out / "mapping.json").read_text())
+        self.assertEqual(mapping['schema_version'], 2)
+        self.assertEqual(mapping['ppq'], 96)
+        self.assertEqual(mapping['chart_sha256'], report['chart_sha256'])
 
     def test_chord_overflow_uses_parallel_bgm_without_losing_notes(self):
         self.package(ticks=(0,) * 10)

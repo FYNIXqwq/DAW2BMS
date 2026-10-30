@@ -270,8 +270,10 @@ func TestExternalPlayerArguments(t *testing.T) {
 	var args []string
 	for i := 0; i < 60; i++ {
 		if b, e := os.ReadFile(output); e == nil {
-			_ = json.Unmarshal(b, &args)
-			break
+			// The helper can create the file before its JSON write has completed.
+			if json.Unmarshal(b, &args) == nil {
+				break
+			}
 		}
 		time.Sleep(25 * time.Millisecond)
 	}
@@ -291,8 +293,9 @@ func TestExternalPlayerArguments(t *testing.T) {
 	args = nil
 	for i := 0; i < 60; i++ {
 		if b, e := os.ReadFile(output); e == nil {
-			_ = json.Unmarshal(b, &args)
-			break
+			if json.Unmarshal(b, &args) == nil {
+				break
+			}
 		}
 		time.Sleep(25 * time.Millisecond)
 	}

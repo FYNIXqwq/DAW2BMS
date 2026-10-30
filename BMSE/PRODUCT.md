@@ -25,3 +25,10 @@ The Windows distribution must include the converter and Python runtime in the `d
 Open a completed conversion as an independent new chart after the editor's existing unsaved-changes confirmation. Do not merge it into the current chart. Keep the generated chart beside its media so relative keysound paths remain valid. MIDI-only results do not open an empty chart, and pending conversion/inspection protects the dialog and application from premature closure.
 
 The import panel supports zh-TW, en, ja and ko, follows the operating system by default and remembers a manual choice. The host editor retains its existing INI language system and compact BMSE visual identity.
+
+## DAW production draft
+File → DAW 制作底稿 opens the draft editor; opening a converted chart with valid source mapping also opens it automatically. Entry preserves the chart's current playable/BGM assignments. A separate explicit action moves all editable mapped notes to BGM, and assignments participate in the editor's Undo/Redo history.
+
+Keep DAW source identity attached to each mapped note. Group occurrences by source track, instrument/channel, source key and WAV resource so authors can filter, preview keysounds, select groups, locate them in the chart and assign them to target keys or BGM. Assignment preserves event timing, sound references, note count and source identity. Reject the entire assignment if the destination cannot accommodate it; protect long notes, their endpoints and other special notes.
+
+Save source mapping in compressed ASCII `*BMSE_DAW1` comment metadata bound to the serialized chart's hash. Preserve valid mapping through reopening and Save As; reject stale mapping with a visible warning. This workflow reorganizes mapped chart notes and does not establish universal musical fidelity or compatibility with every source project.
